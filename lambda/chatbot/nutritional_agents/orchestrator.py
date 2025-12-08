@@ -2,7 +2,7 @@ from agents import Agent, Runner
 from .nutrition_plan import nutrition_plan_agent
 from .education import education_agent
 from .monitoring import monitoring_agent
-from .safety import safety_guardrail
+from .safety import safety_agent
 
 ORCHESTRATOR_AGENT_SYSTEM_PROMPT = """
 You are the orchestrator for a kidney disease nutrition chatbot. You help patients with CKD manage their diet and understand their condition.
@@ -82,7 +82,7 @@ orchestrator_agent = Agent(
         nutrition_plan_agent,
         education_agent,
         monitoring_agent,
+        safety_agent
     ],
-    output_guardrails=[safety_guardrail],
     model="gpt-4o",
 )
