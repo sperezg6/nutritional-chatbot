@@ -13,7 +13,7 @@ class SupabaseClient:
 
     def __init__(self):
         url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_KEY")
+        key = os.getenv("SUPABASE_SERVICE_KEY")
 
         self.client: Client = create_client(url, key)
 
