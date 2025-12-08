@@ -7,7 +7,7 @@ import json
 import asyncio
 import os
 from agents import Runner
-from nutritional_agents.orchestrator import build_orchestrator_with_history
+from nutritional_agents.orchestrator import orchestrator_agent
 from utils.supabase_client import SupabaseClient
 
 
@@ -53,21 +53,20 @@ async def process_message(message: str, session_id: str = None) -> dict:
         session = supabase.create_session()
     
     session_id = session["id"]
+    print(f"Using session ID: {session_id}")
 
     # Load conversation history
     conversation_history = supabase.get_messages(session_id, limit=50, for_openai=True)
+    print(f"Loaded {len(conversation_history)} messages from history.")
 
-    # Build orchestrator with history
-    orchestrator = build_orchestrator_with_history(
-        conversation_history=conversation_history,
-    )
 
     # Run the agent
     result = await Runner.run(
-        orchestrator,
+        orchestrator_agent,
         input=message,
         context={
             "session_id": session_id,
+            "conversation_history": conversation_history,
             "supabase": supabase,
         },
     )
@@ -75,13 +74,7 @@ async def process_message(message: str, session_id: str = None) -> dict:
     response_text = result.final_output
     last_agent = getattr(result, "last_agent", "Orchestrator")
 
-    # Save conversation turn
-    supabase.save_turn(
-        session_id=session_id,
-        user_message=message,
-        assistant_message=response_text,
-        agent_used=last_agent,
-    )
+    # TO DO: Save conversation turn
 
     return {
         "response": response_text,

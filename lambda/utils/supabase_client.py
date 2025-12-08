@@ -164,7 +164,6 @@ class SupabaseClient:
 
     # ==================== Meal Plans (Optional) ====================
     
-       
     def save_meal_plan(
         self,
         session_id: str,
