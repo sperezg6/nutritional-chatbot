@@ -30,7 +30,6 @@ class SupabaseClient:
             Created session record
         """
         data = {
-            "patient_context": {},
             "metadata": metadata or {},
             "is_active": True,
         }
