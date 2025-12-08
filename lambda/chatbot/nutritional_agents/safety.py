@@ -71,5 +71,5 @@ Respuesta Modificada: "Un TFG de 45 indica una disminución moderada de la funci
 safety_agent = Agent(
     name="Safety",
     instructions=SAFETY_AGENT_SYSTEM_PROMPT,
-    model="gpt-4o-mini",  # Faster model for guardrail
+    model="gpt-4o-mini", 
 )
