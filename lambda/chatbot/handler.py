@@ -70,7 +70,7 @@ async def process_message(message: str, session_id: str = None) -> dict:
         full_input = message
 
     print(f"Full input to agent:\n{full_input}")
-    
+
 
     # Run the agent (no complex objects in context)
     result = await Runner.run(
@@ -79,14 +79,12 @@ async def process_message(message: str, session_id: str = None) -> dict:
     )
 
     response_text = result.final_output
-    last_agent = getattr(result, "last_agent", "Orchestrator")
 
     # TO DO: Save conversation turn
 
     return {
         "response": response_text,
         "session_id": session_id,
-        "agent": last_agent,
     }
 
 
