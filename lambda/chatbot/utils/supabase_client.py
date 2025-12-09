@@ -163,6 +163,78 @@ class SupabaseClient:
         response = self.client.table("messages").insert(data).execute()
         return response.data[0] if response.data else None
     
+    def update_message(
+        self,
+        message_id: str,
+        content: str = None,
+        agent_used: str = None,
+        tool_calls: dict = None
+    ) -> Optional[dict]:
+        """
+        Update an existing message.
+        
+        Args:
+            message_id: UUID of the message to update
+            content: New content (optional)
+            agent_used: Updated agent info (optional)
+            tool_calls: Updated tool calls (optional)
+        
+        Returns:
+            Updated message record or None
+        """
+        data = {}
+        
+        if content is not None:
+            data["content"] = content
+        if agent_used is not None:
+            data["agent_used"] = agent_used
+        if tool_calls is not None:
+            data["tool_calls"] = tool_calls
+        
+        if not data:
+            return None
+        
+        try:
+            response = self.client.table("messages") \
+                .update(data) \
+                .eq("id", message_id) \
+                .execute()
+            return response.data[0] if response.data else None
+        except Exception as e:
+            print(f"Error updating message: {e}")
+            return None
+        
+    def delete_message(self, message_id: str) -> bool:
+        """
+        Delete a message by ID.
+        
+        Args:
+            message_id: UUID of the message to delete
+        
+        Returns:
+            True if deleted successfully
+        """
+        try:
+            self.client.table("messages") \
+                .delete() \
+                .eq("id", message_id) \
+                .execute()
+            return True
+        except Exception as e:
+            print(f"Error deleting message: {e}")
+            return False
+
+    def get_message(self, message_id: str) -> Optional[dict]:
+        """Get a single message by ID."""
+        try:
+            response = self.client.table("messages") \
+                .select("*") \
+                .eq("id", message_id) \
+                .single() \
+                .execute()
+            return response.data
+        except Exception:
+            return None
 
     # ==================== Meal Plans (Optional) ====================
     
