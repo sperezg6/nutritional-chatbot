@@ -68,10 +68,9 @@ async def process_message(message: str, session_id: str = None) -> dict:
     # Run the agent
     result = await Runner.run(
         orchestrator_agent,
-        input=message,
+        input=conversation_history + [{"role": "user", "content": message}],  # Full context
         context={
             "session_id": session_id,
-            "conversation_history": conversation_history,
             "supabase": supabase,
         },
     )
