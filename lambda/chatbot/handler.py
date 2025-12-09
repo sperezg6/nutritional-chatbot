@@ -59,6 +59,12 @@ async def process_message(message: str, session_id: str = None) -> dict:
     conversation_history = supabase.get_messages(session_id, limit=50, for_openai=True)
     print(f"Loaded {len(conversation_history)} messages from history.")
 
+    #  Save user message
+    supabase.save_message(
+        session_id=session_id,
+        role="user",
+        content=message,
+    )
 
     # Run the agent
     result = await Runner.run(
@@ -70,11 +76,16 @@ async def process_message(message: str, session_id: str = None) -> dict:
             "supabase": supabase,
         },
     )
-
+    
+    print(result)
     response_text = result.final_output
-#    last_agent = getattr(result, "last_agent", "Orchestrator")
 
-    # TO DO: Save conversation turn
+    # Save assistant response
+    supabase.save_message(
+        session_id=session_id,
+        role="assistant",
+        content=response_text 
+)
 
     return {
         "response": response_text,
