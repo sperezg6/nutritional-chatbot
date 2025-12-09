@@ -19,17 +19,19 @@ class SupabaseClient:
 
     
     # ===== SESSIONS =====
-    def create_session(self, metadata: dict = None) -> dict:
+    def create_session(self, title: str = None, metadata: dict = None) -> dict:
         """
         Create a new chat session.
         
         Args:
+            title: Optional title for the session
             metadata: Optional metadata (source, device, etc.)
         
         Returns:
             Created session record
         """
         data = {
+            "title": title or f"Session {datetime.utcnow().isoformat()}",
             "metadata": metadata or {},
             "is_active": True,
         }
