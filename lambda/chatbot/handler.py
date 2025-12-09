@@ -57,34 +57,28 @@ async def process_message(message: str, session_id: str = None) -> dict:
 
     # Load conversation history
     conversation_history = supabase.get_messages(session_id, limit=50, for_openai=True)
-    
-    # Build input with history context
-    if conversation_history:
-        # Add history to the message so the agent knows the context
-        history_text = "\n".join([
-            f"{'Usuario' if m['role'] == 'user' else 'Asistente'}: {m['content']}"
-            for m in conversation_history[-6:]  # Last 6 messages
-        ])
-        full_input = f"[Historial reciente]\n{history_text}\n\n[Mensaje actual]\n{message}"
-    else:
-        full_input = message
-
-    print(f"Full input to agent:\n{full_input}")
+    print(f"Loaded {len(conversation_history)} messages from history.")
 
 
-    # Run the agent (no complex objects in context)
+    # Run the agent
     result = await Runner.run(
         orchestrator_agent,
-        input=full_input,
+        input=message,
+        context={
+            "session_id": session_id,
+            "conversation_history": conversation_history,
+            "supabase": supabase,
+        },
     )
 
     response_text = result.final_output
+#    last_agent = getattr(result, "last_agent", "Orchestrator")
 
     # TO DO: Save conversation turn
 
     return {
         "response": response_text,
-        "session_id": session_id,
+        "session_id": session_id
     }
 
 
