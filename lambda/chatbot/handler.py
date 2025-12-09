@@ -80,12 +80,17 @@ async def process_message(message: str, session_id: str = None) -> dict:
     print(result)
     response_text = result.final_output
 
+    agent_used = "OrchestratorAgent"
+    if hasattr(result, 'last_agent') and result.last_agent:
+        agent_used = getattr(result.last_agent, 'name', str(result.last_agent))
+
     # Save assistant response
     supabase.save_message(
         session_id=session_id,
         role="assistant",
-        content=response_text 
-)
+        content=response_text,
+        agent_used=agent_used
+        )
 
     return {
         "response": response_text,
