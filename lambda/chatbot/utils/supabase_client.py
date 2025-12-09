@@ -104,6 +104,7 @@ class SupabaseClient:
             .limit(limit) \
             .execute()
         
+        print(f"Fetched {len(response.data or [])} messages from Supabase.")
         messages = response.data or []
         
         if for_openai:

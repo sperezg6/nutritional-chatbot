@@ -57,7 +57,7 @@ async def process_message(message: str, session_id: str = None) -> dict:
 
     # Load conversation history
     conversation_history = supabase.get_messages(session_id, limit=50, for_openai=True)
-    print(f"Loaded {len(conversation_history)} messages from history.")
+    print(conversation_history)
 
     #  Save user message
     supabase.save_message(
