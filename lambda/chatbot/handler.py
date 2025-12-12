@@ -7,6 +7,7 @@ import json
 import asyncio
 import os
 import time
+import threading
 from agents import Runner
 from nutritional_agents.orchestrator import orchestrator_agent
 from utils.supabase_client import SupabaseClient
@@ -62,8 +63,7 @@ async def process_message(message: str, session_id: str = None) -> dict:
         session_id = session["id"]
         print(f"Using session ID: {session_id}")
 
-        # Load conversation history
-        conversation_history = supabase.get_messages(session_id, limit=50, for_openai=True)
+        conversation_history = supabase.get_messages(session_id, limit=12, for_openai=True)
 
         #  Save user message
         supabase.save_message(
@@ -100,13 +100,20 @@ async def process_message(message: str, session_id: str = None) -> dict:
             agent_used=agent_used
         )
 
-        # Save analytics
-        supabase.save_agent_analytics(
-            session_id=session_id,
-            agent_name=agent_used,
-            response_time_ms=response_time_ms,
-            success=True,
-        )
+        # Save analytics asynchronously (non-blocking for faster response)
+        def save_analytics_async():
+            try:
+                supabase.save_agent_analytics(
+                    session_id=session_id,
+                    agent_name=agent_used,
+                    response_time_ms=response_time_ms,
+                    success=True,
+                )
+            except Exception as e:
+                print(f"Background analytics save failed: {e}")
+
+        # Start analytics save in background thread
+        threading.Thread(target=save_analytics_async, daemon=True).start()
 
         return {
             "response": response_text,
@@ -122,18 +129,21 @@ async def process_message(message: str, session_id: str = None) -> dict:
         # Calculate response time even on error
         response_time_ms = (time.time() - start_time) * 1000
 
-        # Try to save analytics even on error
+        # Try to save analytics even on error (async, non-blocking)
         if session_id:
-            try:
-                supabase.save_agent_analytics(
-                    session_id=session_id,
-                    agent_name="OrchestratorAgent",
-                    response_time_ms=response_time_ms,
-                    success=False,
-                    error_message=error_message,
-                )
-            except Exception as analytics_error:
-                print(f"Failed to save error analytics: {analytics_error}")
+            def save_error_analytics_async():
+                try:
+                    supabase.save_agent_analytics(
+                        session_id=session_id,
+                        agent_name="OrchestratorAgent",
+                        response_time_ms=response_time_ms,
+                        success=False,
+                        error_message=error_message,
+                    )
+                except Exception as analytics_error:
+                    print(f"Failed to save error analytics: {analytics_error}")
+
+            threading.Thread(target=save_error_analytics_async, daemon=True).start()
 
         raise  # Re-raise the exception to be handled by the main handler
 
