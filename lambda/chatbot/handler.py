@@ -50,7 +50,9 @@ async def process_message(message: str, session_id: str = None) -> dict:
         if not session:
             return {"error": "Sesión no encontrada", "session_id": None}
     else:
-        session = supabase.create_session()
+        # Extract title from first message (without fallback)
+        title = message[:50] + "..." if len(message) > 50 else message
+        session = supabase.create_session(title=title)
     
     session_id = session["id"]
     print(f"Using session ID: {session_id}")
@@ -93,7 +95,8 @@ async def process_message(message: str, session_id: str = None) -> dict:
 
     return {
         "response": response_text,
-        "session_id": session_id,   
+        "session_id": session_id,
+        "title": session.get("title"),
     }
 
 
