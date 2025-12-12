@@ -97,5 +97,5 @@ Eres un asistente de monitoreo de salud para pacientes con enfermedad renal. Ayu
 monitoring_agent = Agent(
     name="Monitoring",
     instructions=MONITORING_AGENT_SYSTEM_PROMPT,
-    model="gpt-4o"
+    model="gpt-5-nano-2025-08-07"
 )

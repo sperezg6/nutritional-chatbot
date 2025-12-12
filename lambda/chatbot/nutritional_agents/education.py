@@ -314,5 +314,5 @@ Esto hará que tus explicaciones se vean hermosas en la interfaz del chatbot.
 education_agent = Agent(
     name="Education",
     instructions=EDUCATION_AGENT_SYSTEM_PROMPT,
-    model="gpt-4o",
+    model="gpt-5-nano-2025-08-07",
 )

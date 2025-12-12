@@ -6,6 +6,7 @@ Returns complete response (non-streaming).
 import json
 import asyncio
 import os
+import time
 from agents import Runner
 from nutritional_agents.orchestrator import orchestrator_agent
 from utils.supabase_client import SupabaseClient
@@ -41,63 +42,100 @@ def handler(event: dict, context) -> dict:
 
 async def process_message(message: str, session_id: str = None) -> dict:
     """Process a chat message and return response."""
-    
+
     supabase = SupabaseClient()
+    start_time = time.time()
+    success = True
+    error_message = None
 
-    # Get or create session
-    if session_id:
-        session = supabase.get_session(session_id)
-        if not session:
-            return {"error": "Sesión no encontrada", "session_id": None}
-    else:
-        # Extract title from first message (without fallback)
-        title = message[:50] + "..." if len(message) > 50 else message
-        session = supabase.create_session(title=title)
-    
-    session_id = session["id"]
-    print(f"Using session ID: {session_id}")
+    try:
+        # Get or create session
+        if session_id:
+            session = supabase.get_session(session_id)
+            if not session:
+                return {"error": "Sesión no encontrada", "session_id": None}
+        else:
+            # Extract title from first message (without fallback)
+            title = message[:50] + "..." if len(message) > 50 else message
+            session = supabase.create_session(title=title)
 
-    # Load conversation history
-    conversation_history = supabase.get_messages(session_id, limit=50, for_openai=True)
+        session_id = session["id"]
+        print(f"Using session ID: {session_id}")
 
-    #  Save user message
-    supabase.save_message(
-        session_id=session_id,
-        role="user",
-        content=message,
-    )
+        # Load conversation history
+        conversation_history = supabase.get_messages(session_id, limit=50, for_openai=True)
 
-    # Run the agent
-    result = await Runner.run(
-        orchestrator_agent,
-        input=conversation_history + [{"role": "user", "content": message}],  # Full context
-        context={
-            "session_id": session_id,
-            "supabase": supabase,
-        },
-    )
-
-    response_text = result.final_output
-
-    agent_used = "OrchestratorAgent"
-    if hasattr(result, 'last_agent') and result.last_agent:
-        agent_used = getattr(result.last_agent, 'name', str(result.last_agent))
-        print(f"Successfully used agent: {agent_used}")
-    
-
-    # Save assistant response
-    supabase.save_message(
-        session_id=session_id,
-        role="assistant",
-        content=response_text,
-        agent_used=agent_used
+        #  Save user message
+        supabase.save_message(
+            session_id=session_id,
+            role="user",
+            content=message,
         )
 
-    return {
-        "response": response_text,
-        "session_id": session_id,
-        "title": session.get("title"),
-    }
+        # Run the agent
+        result = await Runner.run(
+            orchestrator_agent,
+            input=conversation_history + [{"role": "user", "content": message}],  # Full context
+            context={
+                "session_id": session_id,
+                "supabase": supabase,
+            },
+        )
+
+        response_text = result.final_output
+
+        agent_used = "OrchestratorAgent"
+        if hasattr(result, 'last_agent') and result.last_agent:
+            agent_used = getattr(result.last_agent, 'name', str(result.last_agent))
+            print(f"Successfully used agent: {agent_used}")
+
+        # Calculate response time
+        response_time_ms = (time.time() - start_time) * 1000
+
+        # Save assistant response
+        supabase.save_message(
+            session_id=session_id,
+            role="assistant",
+            content=response_text,
+            agent_used=agent_used
+        )
+
+        # Save analytics
+        supabase.save_agent_analytics(
+            session_id=session_id,
+            agent_name=agent_used,
+            response_time_ms=response_time_ms,
+            success=True,
+        )
+
+        return {
+            "response": response_text,
+            "session_id": session_id,
+            "title": session.get("title"),
+        }
+
+    except Exception as e:
+        success = False
+        error_message = str(e)
+        print(f"Error in process_message: {e}")
+
+        # Calculate response time even on error
+        response_time_ms = (time.time() - start_time) * 1000
+
+        # Try to save analytics even on error
+        if session_id:
+            try:
+                supabase.save_agent_analytics(
+                    session_id=session_id,
+                    agent_name="OrchestratorAgent",
+                    response_time_ms=response_time_ms,
+                    success=False,
+                    error_message=error_message,
+                )
+            except Exception as analytics_error:
+                print(f"Failed to save error analytics: {analytics_error}")
+
+        raise  # Re-raise the exception to be handled by the main handler
 
 
 def response(status_code: int, body: dict) -> dict:

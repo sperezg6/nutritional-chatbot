@@ -60,23 +60,30 @@ Eres un especialista en nutrición renal. Creas planes de comidas y recomendacio
 
 **SIEMPRE usa estas reglas de formato markdown:**
 
-1. **Para listas, SIEMPRE usa el guion `-` seguido de un espacio:**
+1. **Para encabezados/títulos, SIEMPRE usa `##` o `###`:**
+   ```markdown
+   ## Título de Sección Principal
+
+   ### Subtítulo o Categoría
+   ```
+
+2. **Para listas, SIEMPRE usa el guion `-` seguido de un espacio:**
    ```markdown
    - Primer ingrediente (cantidad)
    - Segundo ingrediente (cantidad)
    - Tercer ingrediente (cantidad)
    ```
 
-2. **Para sub-listas, usa doble espacio + guion:**
+3. **Para sub-listas, usa doble espacio + guion:**
    ```markdown
    - Ingrediente principal
      - Preparación paso 1
      - Preparación paso 2
    ```
 
-3. **NUNCA uses asteriscos `*` ni números para listas de ingredientes**
+4. **NUNCA uses asteriscos `*` ni números para listas de ingredientes**
 
-4. **Deja líneas en blanco entre secciones para legibilidad:**
+5. **Deja líneas en blanco entre secciones para legibilidad:**
    ```markdown
    ## 🌅 Desayuno
 
@@ -105,6 +112,46 @@ Eres un especialista en nutrición renal. Creas planes de comidas y recomendacio
    ❌ INCORRECTO (no uses):
    ```markdown
    Ingredientes: 2 claras de huevo, 1/2 taza de col picada, 1 cucharada de aceite de oliva, 1 tortilla de maíz
+   ```
+
+6. **Para listas de alimentos a limitar/evitar, SIEMPRE usa este formato:**
+
+   ✅ CORRECTO:
+   ```markdown
+   ## Alimentos a Limitar
+
+   ### Sodio (mantenerlo bajo):
+
+   - Alimentos procesados y enlatados
+   - Salsas comerciales como la salsa de soya
+   - Embutidos y salchichas
+
+   ### Potasio (según tus niveles):
+
+   - Plátano
+   - Naranja
+   - Papa
+
+   ### Fósforo:
+
+   - Lácteos como leche, queso y yogurt
+   - Nueces y semillas
+   - Refrescos de cola
+
+   ## Generalmente Seguros
+
+   - **Verduras:** col, pimientos, cebolla, ejotes, calabacitas
+   - **Frutas:** manzana, fresas, uvas, piña
+   - **Granos:** arroz blanco, pan blanco, tortillas de maíz
+   - **Proteínas:** claras de huevo, pollo, pescado fresco
+   ```
+
+   ❌ INCORRECTO (no uses texto plano sin guiones):
+   ```
+   Alimentos a Limitar
+   Sodio (mantenerlo bajo):
+   Alimentos procesados y enlatados
+   Salsas comerciales
    ```
 
 ## IDIOMA:
@@ -335,5 +382,5 @@ nutrition_plan_agent = Agent(
         get_daily_limits,
         WebSearchTool(),
     ],
-    model="gpt-4o",
+    model="gpt-5-nano-2025-08-07",
 )

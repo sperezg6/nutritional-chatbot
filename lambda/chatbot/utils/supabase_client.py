@@ -4,7 +4,7 @@ Session-first approach (no users for MVP)
 """
 import os
 from typing import Optional
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from supabase import create_client, Client
 
 
@@ -281,8 +281,188 @@ class SupabaseClient:
             .order("plan_date", desc=True) \
             .limit(limit) \
             .execute()
-        
+
         return response.data or []
-    
+
+    # ==================== Agent Analytics ====================
+
+    def save_agent_analytics(
+        self,
+        session_id: str,
+        agent_name: str,
+        response_time_ms: float = None,
+        token_count: int = None,
+        input_tokens: int = None,
+        output_tokens: int = None,
+        success: bool = True,
+        error_message: str = None,
+        handoffs: list[str] = None,
+        metadata: dict = None,
+    ) -> dict:
+        """
+        Save agent analytics data.
+
+        Args:
+            session_id: UUID of the session
+            agent_name: Name of the agent that handled the request
+            response_time_ms: Response time in milliseconds
+            token_count: Total tokens used (deprecated, use input/output)
+            input_tokens: Input/prompt tokens
+            output_tokens: Completion tokens
+            success: Whether the request was successful
+            error_message: Error message if failed
+            handoffs: List of agents that were handed off to
+            metadata: Additional metadata (model used, etc.)
+
+        Returns:
+            Created analytics record
+        """
+        data = {
+            "session_id": session_id,
+            "agent_name": agent_name,
+            "success": success,
+        }
+
+        if response_time_ms is not None:
+            data["response_time_ms"] = response_time_ms
+        if token_count is not None:
+            data["token_count"] = token_count
+        if input_tokens is not None:
+            data["input_tokens"] = input_tokens
+        if output_tokens is not None:
+            data["output_tokens"] = output_tokens
+        if error_message:
+            data["error_message"] = error_message
+        if handoffs:
+            data["handoffs"] = handoffs
+        if metadata:
+            data["metadata"] = metadata
+
+        try:
+            response = self.client.table("agent_analytics").insert(data).execute()
+            return response.data[0] if response.data else None
+        except Exception as e:
+            print(f"Error saving analytics: {e}")
+            return None
+
+    def get_agent_analytics(
+        self,
+        session_id: str = None,
+        agent_name: str = None,
+        start_date: str = None,
+        end_date: str = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """
+        Get agent analytics data with optional filters.
+
+        Args:
+            session_id: Filter by session (optional)
+            agent_name: Filter by agent name (optional)
+            start_date: Filter by start date (ISO format, optional)
+            end_date: Filter by end date (ISO format, optional)
+            limit: Maximum records to return
+
+        Returns:
+            List of analytics records
+        """
+        query = self.client.table("agent_analytics").select("*")
+
+        if session_id:
+            query = query.eq("session_id", session_id)
+        if agent_name:
+            query = query.eq("agent_name", agent_name)
+        if start_date:
+            query = query.gte("created_at", start_date)
+        if end_date:
+            query = query.lte("created_at", end_date)
+
+        response = query.order("created_at", desc=True).limit(limit).execute()
+        return response.data or []
+
+    def get_agent_summary(self, days: int = 7) -> dict:
+        """
+        Get agent usage summary for the last N days.
+
+        Args:
+            days: Number of days to analyze (default: 7)
+
+        Returns:
+            Dictionary with agent usage statistics
+        """
+        try:
+            # Calculate start date
+            start_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
+
+            # Get all analytics since start_date
+            analytics = self.get_agent_analytics(start_date=start_date, limit=10000)
+
+            # Calculate summary
+            summary = {
+                "total_requests": len(analytics),
+                "successful_requests": sum(1 for a in analytics if a.get("success", True)),
+                "failed_requests": sum(1 for a in analytics if not a.get("success", True)),
+                "by_agent": {},
+                "avg_response_time_ms": 0,
+                "total_tokens": 0,
+            }
+
+            # Calculate per-agent stats
+            agent_stats = {}
+            total_response_time = 0
+            response_time_count = 0
+
+            for record in analytics:
+                agent = record.get("agent_name", "Unknown")
+
+                if agent not in agent_stats:
+                    agent_stats[agent] = {
+                        "count": 0,
+                        "success_count": 0,
+                        "total_response_time": 0,
+                        "total_tokens": 0,
+                    }
+
+                agent_stats[agent]["count"] += 1
+
+                if record.get("success", True):
+                    agent_stats[agent]["success_count"] += 1
+
+                if record.get("response_time_ms"):
+                    agent_stats[agent]["total_response_time"] += record["response_time_ms"]
+                    total_response_time += record["response_time_ms"]
+                    response_time_count += 1
+
+                tokens = record.get("token_count") or (
+                    (record.get("input_tokens") or 0) + (record.get("output_tokens") or 0)
+                )
+                agent_stats[agent]["total_tokens"] += tokens
+                summary["total_tokens"] += tokens
+
+            # Calculate averages
+            for agent, stats in agent_stats.items():
+                summary["by_agent"][agent] = {
+                    "count": stats["count"],
+                    "success_rate": stats["success_count"] / stats["count"] if stats["count"] > 0 else 0,
+                    "avg_response_time_ms": stats["total_response_time"] / stats["count"] if stats["count"] > 0 else 0,
+                    "total_tokens": stats["total_tokens"],
+                }
+
+            if response_time_count > 0:
+                summary["avg_response_time_ms"] = total_response_time / response_time_count
+
+            return summary
+
+        except Exception as e:
+            print(f"Error generating agent summary: {e}")
+            return {
+                "total_requests": 0,
+                "successful_requests": 0,
+                "failed_requests": 0,
+                "by_agent": {},
+                "avg_response_time_ms": 0,
+                "total_tokens": 0,
+            }
+
 # Singleton instance
 supabase_client = SupabaseClient()
