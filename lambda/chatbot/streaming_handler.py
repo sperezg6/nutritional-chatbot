@@ -83,34 +83,30 @@ async def chat_stream(request: ChatRequest):
             )
 
             # Stream the agent response
-            async for chunk in Runner.run_streamed(
+            from openai.types.responses import ResponseTextDeltaEvent
+
+            result = Runner.run_streamed(
                 orchestrator_agent,
                 input=conversation_history + [{"role": "user", "content": request.message}],
                 context={
                     "session_id": session_id,
                     "supabase": supabase,
                 },
-            ):
-                # Check if this is a text delta from the agent
-                if hasattr(chunk, 'snapshot') and hasattr(chunk.snapshot, 'content'):
-                    # Get the latest content
-                    content = chunk.snapshot.content
-                    if isinstance(content, list) and len(content) > 0:
-                        # Get the text from the last message
-                        last_item = content[-1]
-                        if hasattr(last_item, 'text'):
-                            current_text = last_item.text
+            )
 
-                            # Send only the new delta (difference from accumulated)
-                            if current_text.startswith(accumulated_response):
-                                delta = current_text[len(accumulated_response):]
-                                if delta:
-                                    accumulated_response = current_text
-                                    yield f"data: {json.dumps({'type': 'chunk', 'content': delta})}\n\n"
+            # Iterate through streaming events
+            async for event in result.stream_events():
+                # Check for text delta events from the LLM
+                if event.type == "raw_response_event" and isinstance(event.data, ResponseTextDeltaEvent):
+                    delta = event.data.delta
+                    if delta:
+                        accumulated_response += delta
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': delta})}\n\n"
 
-                # Track which agent was used
-                if hasattr(chunk, 'last_agent') and chunk.last_agent:
-                    agent_used = getattr(chunk.last_agent, 'name', str(chunk.last_agent))
+            # Get the final result to extract agent info
+            final_result = await result.get_final_result()
+            if hasattr(final_result, 'last_agent') and final_result.last_agent:
+                agent_used = getattr(final_result.last_agent, 'name', str(final_result.last_agent))
 
             # Use accumulated response as final output
             response_text = accumulated_response
