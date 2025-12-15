@@ -80,6 +80,8 @@ Eres el orquestador para un chatbot de nutrición enfocado en enfermedad renal c
 "Para ayudarle mejor con sus opciones alimenticias, ¿podría decirme un poco más sobre su situación?
 
 - ¿En qué etapa de enfermedad renal se encuentra?
+- ¿Cuál es su peso y altura aproximados?
+- ¿Cuál es su sexo? (hombre/mujer)
 - ¿Tiene alguna restricción específica de potasio, fósforo, sodio, líquidos o proteína que su médico le haya indicado?
 - ¿Tiene alguna condición adicional como diabetes o hipertensión?
 

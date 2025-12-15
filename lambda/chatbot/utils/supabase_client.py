@@ -464,5 +464,134 @@ class SupabaseClient:
                 "total_tokens": 0,
             }
 
+    # ==================== Session Feedback ====================
+
+    def save_session_feedback(
+        self,
+        session_id: str,
+        rating: int,
+        comment: str = None,
+        user_agent: str = None,
+        ip_address: str = None,
+        device_info: dict = None,
+    ) -> dict:
+        """
+        Save user feedback for a chat session.
+
+        Args:
+            session_id: UUID of the session
+            rating: User rating from 1-5 (1=very sad, 5=very happy)
+            comment: Optional user comment
+            user_agent: Browser user agent string
+            ip_address: User IP address
+            device_info: Additional device/browser information
+
+        Returns:
+            Created feedback record or None
+        """
+        if not 1 <= rating <= 5:
+            raise ValueError("Rating must be between 1 and 5")
+
+        data = {
+            "session_id": session_id,
+            "rating": rating,
+        }
+
+        if comment:
+            data["comment"] = comment
+        if user_agent:
+            data["user_agent"] = user_agent
+        if ip_address:
+            data["ip_address"] = ip_address
+        if device_info:
+            data["device_info"] = device_info
+
+        try:
+            response = self.client.table("session_feedback").insert(data).execute()
+            return response.data[0] if response.data else None
+        except Exception as e:
+            print(f"Error saving session feedback: {e}")
+            return None
+
+    def get_session_feedback(self, session_id: str) -> dict:
+        """
+        Get feedback for a specific session.
+
+        Args:
+            session_id: UUID of the session
+
+        Returns:
+            Feedback record or None
+        """
+        try:
+            response = self.client.table("session_feedback") \
+                .select("*") \
+                .eq("session_id", session_id) \
+                .single() \
+                .execute()
+            return response.data
+        except Exception:
+            return None
+
+    def get_feedback_summary(self, days: int = 30) -> dict:
+        """
+        Get feedback summary statistics.
+
+        Args:
+            days: Number of days to analyze (default: 30)
+
+        Returns:
+            Dictionary with feedback statistics
+        """
+        try:
+            from datetime import datetime, timedelta
+
+            # Calculate start date
+            start_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
+
+            # Get all feedback since start_date
+            response = self.client.table("session_feedback") \
+                .select("*") \
+                .gte("created_at", start_date) \
+                .execute()
+
+            feedback_list = response.data or []
+
+            # Calculate summary
+            if not feedback_list:
+                return {
+                    "total_responses": 0,
+                    "average_rating": 0,
+                    "rating_distribution": {1: 0, 2: 0, 3: 0, 4: 0, 5: 0},
+                    "with_comments": 0,
+                }
+
+            total = len(feedback_list)
+            avg_rating = sum(f["rating"] for f in feedback_list) / total
+            with_comments = sum(1 for f in feedback_list if f.get("comment"))
+
+            # Count rating distribution
+            rating_dist = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+            for feedback in feedback_list:
+                rating_dist[feedback["rating"]] += 1
+
+            return {
+                "total_responses": total,
+                "average_rating": round(avg_rating, 2),
+                "rating_distribution": rating_dist,
+                "with_comments": with_comments,
+                "satisfaction_rate": round((rating_dist[4] + rating_dist[5]) / total * 100, 1),
+            }
+
+        except Exception as e:
+            print(f"Error generating feedback summary: {e}")
+            return {
+                "total_responses": 0,
+                "average_rating": 0,
+                "rating_distribution": {1: 0, 2: 0, 3: 0, 4: 0, 5: 0},
+                "with_comments": 0,
+                "satisfaction_rate": 0,
+            }
+
 # Singleton instance
 supabase_client = SupabaseClient()
