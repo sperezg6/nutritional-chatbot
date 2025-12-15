@@ -143,6 +143,7 @@ export class NutritionalChatbotStack extends cdk.Stack {
         AWS_LAMBDA_EXEC_WRAPPER: '/opt/bootstrap',  // Required for Lambda Web Adapter
         AWS_LWA_INVOKE_MODE: 'response_stream',  // Enable streaming mode
         AWS_LWA_PORT: '8080',  // FastAPI port
+        PYTHONPATH: '/var/task:/opt/python',  // Ensure Python can find layer modules
       },
       description: 'Streaming Lambda function for Nutritional Chatbot using OpenAI Agents and FastAPI',
     });
