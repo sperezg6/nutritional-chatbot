@@ -118,6 +118,77 @@ export class NutritionalChatbotStack extends cdk.Stack {
       })
     ));
 
+    // ===== STREAMING LAMBDA FUNCTION =====
+
+    // Lambda Web Adapter Layer (for Python streaming support)
+    const lambdaAdapterLayer = lambda.LayerVersion.fromLayerVersionArn(
+      this,
+      'LambdaAdapterLayer',
+      `arn:aws:lambda:${this.region}:753240598075:layer:LambdaAdapterLayerX86:25`
+    );
+
+    // Streaming Lambda Function with FastAPI + Lambda Web Adapter
+    const streamingChatbotFunction = new lambda.Function(this, 'StreamingChatbotFunction', {
+      functionName: 'kidney-nutritional-chatbot-streaming-function',
+      runtime: lambda.Runtime.PYTHON_3_11,
+      handler: 'run_streaming.sh',  // Points to startup script
+      code: lambda.Code.fromAsset(path.join(__dirname, '../lambda/chatbot')),
+      layers: [dependenciesLayer, lambdaAdapterLayer],
+      timeout: cdk.Duration.minutes(15),  // Extended timeout for streaming
+      memorySize: 2048,
+      environment: {
+        OPENAI_API_KEY: secrets.secretValueFromJson('OPENAI_API_KEY').unsafeUnwrap(),
+        SUPABASE_URL: secrets.secretValueFromJson('SUPABASE_URL').unsafeUnwrap(),
+        SUPABASE_SERVICE_KEY: secrets.secretValueFromJson('SUPABASE_SERVICE_KEY').unsafeUnwrap(),
+        AWS_LAMBDA_EXEC_WRAPPER: '/opt/bootstrap',  // Required for Lambda Web Adapter
+        AWS_LWA_INVOKE_MODE: 'response_stream',  // Enable streaming mode
+        AWS_LWA_PORT: '8080',  // FastAPI port
+      },
+      description: 'Streaming Lambda function for Nutritional Chatbot using OpenAI Agents and FastAPI',
+    });
+
+    // Grant secrets access to streaming function
+    secrets.grantRead(streamingChatbotFunction);
+
+    // /chat-stream endpoint with streaming configuration
+    const chatStreamResource = api.root.addResource('chat-stream');
+
+    const streamingIntegration = new apigateway.LambdaIntegration(streamingChatbotFunction, {
+      proxy: true,
+      // Enable streaming response mode
+      integrationResponses: [{
+        statusCode: '200',
+        responseParameters: {
+          'method.response.header.Access-Control-Allow-Origin': "'*'",
+          'method.response.header.Cache-Control': "'no-cache'",
+          'method.response.header.Connection': "'keep-alive'",
+          'method.response.header.Content-Type': "'text/event-stream'",
+          'method.response.header.X-Accel-Buffering': "'no'",
+        },
+      }],
+    });
+
+    chatStreamResource.addMethod('POST', streamingIntegration, {
+      apiKeyRequired: false,
+      methodResponses: [
+        {
+          statusCode: '200',
+          responseParameters: {
+            'method.response.header.Access-Control-Allow-Origin': true,
+            'method.response.header.Cache-Control': true,
+            'method.response.header.Connection': true,
+            'method.response.header.Content-Type': true,
+            'method.response.header.X-Accel-Buffering': true,
+          },
+        },
+        { statusCode: '400' },
+        { statusCode: '500' },
+      ],
+      requestParameters: {
+        'method.request.header.Content-Type': true,
+      },
+    });
+
     // ==== OUTPUTS ====
     this.apiUrl = api.url;
 
@@ -132,9 +203,19 @@ export class NutritionalChatbotStack extends cdk.Stack {
       description: 'Chat endpoint URL',
     });
 
+    new cdk.CfnOutput(this, 'ChatStreamEndpoint', {
+      value: `${api.url}chat-stream`,
+      description: 'Streaming chat endpoint URL',
+    });
+
      new cdk.CfnOutput(this, 'FunctionName', {
       value: chatbotFunction.functionName,
       description: 'Lambda function name',
+    });
+
+    new cdk.CfnOutput(this, 'StreamingFunctionName', {
+      value: streamingChatbotFunction.functionName,
+      description: 'Streaming Lambda function name',
     });
 
 
