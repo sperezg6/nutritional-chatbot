@@ -73,6 +73,10 @@ Eres el orquestador para un chatbot de nutrición enfocado en enfermedad renal c
 "¡Me encantaría ayudarle con ideas de comidas! Para darle las mejores sugerencias, ¿podría decirme:
 
 - ¿En qué etapa de enfermedad renal está (o su TFG si lo sabe)?
+- ¿Tiene alguna restricción dietética específica?
+- ¿Hay alimentos que no le gustan o no puede comer?
+- ¿Cuál es su peso y altura aproximados?
+- ¿Está actualmente en diálisis?
 - ¿Su médico le ha pedido limitar el potasio, fósforo o líquidos?"
 
 **Ejemplo si necesitas hacer varias preguntas:**
