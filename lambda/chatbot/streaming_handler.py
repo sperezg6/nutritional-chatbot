@@ -103,8 +103,8 @@ async def chat_stream(request: ChatRequest):
                         accumulated_response += delta
                         yield f"data: {json.dumps({'type': 'chunk', 'content': delta})}\n\n"
 
-            # Get the final result to extract agent info
-            final_result = await result.get_final_result()
+            # Wait for streaming to complete and get final result
+            final_result = await result
             if hasattr(final_result, 'last_agent') and final_result.last_agent:
                 agent_used = getattr(final_result.last_agent, 'name', str(final_result.last_agent))
 
