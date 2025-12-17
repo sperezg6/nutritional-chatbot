@@ -17,23 +17,14 @@ def handler(event: dict, context) -> dict:
     """
     AWS Lambda handler for chatbot requests.
     Returns complete response (non-streaming).
-    Supports both API Gateway and Lambda Function URL event formats.
     """
-    # Detect request method (API Gateway vs Function URL format)
-    http_method = event.get("httpMethod") or event.get("requestContext", {}).get("http", {}).get("method")
-
     # Handle CORS preflight
-    if http_method == "OPTIONS":
+    if event.get("httpMethod") == "OPTIONS":
         return response(200, {})
-
+    
     try:
-        # Parse request body
-        raw_body = event.get("body", "{}")
-        # Function URLs may base64 encode the body
-        if event.get("isBase64Encoded"):
-            import base64
-            raw_body = base64.b64decode(raw_body).decode("utf-8")
-        body = json.loads(raw_body)
+        # Parse request
+        body = json.loads(event.get("body", "{}"))
         message = body.get("message", "")
         session_id = body.get("session_id")
 
