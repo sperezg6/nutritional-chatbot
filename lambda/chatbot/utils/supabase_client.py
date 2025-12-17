@@ -81,38 +81,40 @@ class SupabaseClient:
     
     # ==================== Messages ====================
     def get_messages(
-        self, 
-        session_id: str, 
+        self,
+        session_id: str,
         limit: int = 20,
         for_openai: bool = True,
     ) -> list[dict]:
         """
         Get conversation history for a session.
-        
+
         Args:
             session_id: UUID of the session
-            limit: Maximum messages to return
+            limit: Maximum messages to return (most recent)
             for_openai: If True, format for OpenAI messages array
-        
+
         Returns:
-            List of messages (oldest first)
+            List of messages (oldest first, but limited to most recent N)
         """
+        # Get most recent messages first (desc), then reverse to chronological order
         response = self.client.table("messages") \
             .select("*") \
             .eq("session_id", session_id) \
-            .order("sequence_number", desc=False) \
+            .order("sequence_number", desc=True) \
             .limit(limit) \
             .execute()
-        
-        print(f"Fetched {len(response.data or [])} messages from Supabase.")
-        messages = response.data or []
-        
+
+        # Reverse to get chronological order (oldest first)
+        messages = list(reversed(response.data or []))
+        print(f"Fetched {len(messages)} messages from Supabase (most recent {limit}).")
+
         if for_openai:
             return [
                 {"role": msg["role"], "content": msg["content"]}
                 for msg in messages
             ]
-        
+
         return messages
 
     def save_message(

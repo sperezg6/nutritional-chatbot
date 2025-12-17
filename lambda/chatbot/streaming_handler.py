@@ -54,7 +54,7 @@ async def chat_stream(request: ChatRequest):
             if session_id:
                 # Parallel: get_session + get_messages
                 session_task = asyncio.to_thread(supabase.get_session, session_id)
-                messages_task = asyncio.to_thread(supabase.get_messages, session_id, 12, True)
+                messages_task = asyncio.to_thread(supabase.get_messages, session_id, 20, True)
                 session, conversation_history = await asyncio.gather(session_task, messages_task)
 
                 if not session:
