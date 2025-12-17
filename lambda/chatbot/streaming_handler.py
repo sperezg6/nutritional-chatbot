@@ -8,7 +8,6 @@ import threading
 from typing import AsyncGenerator
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from agents import Runner
 from nutritional_agents.orchestrator import orchestrator_agent
@@ -17,14 +16,8 @@ from utils.supabase_client import SupabaseClient
 
 app = FastAPI(title="Nutritional Chatbot Streaming API")
 
-# CORS Configuration
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Note: CORS is handled by Lambda Function URL configuration
+# Removing duplicate CORS middleware to avoid duplicate headers
 
 
 class ChatRequest(BaseModel):
