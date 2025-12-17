@@ -5,12 +5,10 @@ Returns complete response (non-streaming).
 """
 import json
 import asyncio
-import os
 import time
-import threading
 from agents import Runner
 from nutritional_agents.orchestrator import orchestrator_agent
-from utils.supabase_client import SupabaseClient
+from utils.supabase_client import supabase_client
 
 
 def handler(event: dict, context) -> dict:
@@ -43,36 +41,39 @@ def handler(event: dict, context) -> dict:
 
 async def process_message(message: str, session_id: str = None) -> dict:
     """Process a chat message and return response."""
-
-    supabase = SupabaseClient()
+    supabase = supabase_client  # Use singleton instead of creating new instance
     start_time = time.time()
     success = True
     error_message = None
 
     try:
-        # Get or create session
+        # Get or create session (parallelized with get_messages when session exists)
         if session_id:
-            session = supabase.get_session(session_id)
+            # Parallel: get_session + get_messages
+            session_task = asyncio.to_thread(supabase.get_session, session_id)
+            messages_task = asyncio.to_thread(supabase.get_messages, session_id, 12, True)
+            session, conversation_history = await asyncio.gather(session_task, messages_task)
+
             if not session:
                 return {"error": "Sesión no encontrada", "session_id": None}
         else:
-            # Extract title from first message (without fallback)
+            # New session - create first, then get empty history
             title = message[:50] + "..." if len(message) > 50 else message
-            session = supabase.create_session(title=title)
+            session = await asyncio.to_thread(supabase.create_session, title=title)
+            conversation_history = []
 
         session_id = session["id"]
         print(f"Using session ID: {session_id}")
 
-        conversation_history = supabase.get_messages(session_id, limit=12, for_openai=True)
-
-        #  Save user message
-        supabase.save_message(
+        # Save user message in parallel with agent execution (fire and forget)
+        save_user_msg_task = asyncio.create_task(asyncio.to_thread(
+            supabase.save_message,
             session_id=session_id,
             role="user",
             content=message,
-        )
+        ))
 
-        # Run the agent
+        # Run the agent (user message saves in parallel)
         result = await Runner.run(
             orchestrator_agent,
             input=conversation_history + [{"role": "user", "content": message}],  # Full context
@@ -81,6 +82,9 @@ async def process_message(message: str, session_id: str = None) -> dict:
                 "supabase": supabase,
             },
         )
+
+        # Ensure user message is saved before continuing
+        await save_user_msg_task
 
         response_text = result.final_output
 
@@ -92,28 +96,23 @@ async def process_message(message: str, session_id: str = None) -> dict:
         # Calculate response time
         response_time_ms = (time.time() - start_time) * 1000
 
-        # Save assistant response
-        supabase.save_message(
+        # Save assistant response (async for faster response)
+        asyncio.create_task(asyncio.to_thread(
+            supabase.save_message,
             session_id=session_id,
             role="assistant",
             content=response_text,
             agent_used=agent_used
-        )
+        ))
 
-        # Save analytics asynchronously (non-blocking for faster response)
-        def save_analytics_async():
-            try:
-                supabase.save_agent_analytics(
-                    session_id=session_id,
-                    agent_name=agent_used,
-                    response_time_ms=response_time_ms,
-                    success=True,
-                )
-            except Exception as e:
-                print(f"Background analytics save failed: {e}")
-
-        # Start analytics save in background thread
-        threading.Thread(target=save_analytics_async, daemon=True).start()
+        # Save analytics in background (non-blocking for faster response)
+        asyncio.create_task(asyncio.to_thread(
+            supabase.save_agent_analytics,
+            session_id=session_id,
+            agent_name=agent_used,
+            response_time_ms=response_time_ms,
+            success=True,
+        ))
 
         return {
             "response": response_text,
@@ -129,21 +128,16 @@ async def process_message(message: str, session_id: str = None) -> dict:
         # Calculate response time even on error
         response_time_ms = (time.time() - start_time) * 1000
 
-        # Try to save analytics even on error (async, non-blocking)
+        # Save error analytics in background
         if session_id:
-            def save_error_analytics_async():
-                try:
-                    supabase.save_agent_analytics(
-                        session_id=session_id,
-                        agent_name="OrchestratorAgent",
-                        response_time_ms=response_time_ms,
-                        success=False,
-                        error_message=error_message,
-                    )
-                except Exception as analytics_error:
-                    print(f"Failed to save error analytics: {analytics_error}")
-
-            threading.Thread(target=save_error_analytics_async, daemon=True).start()
+            asyncio.create_task(asyncio.to_thread(
+                supabase.save_agent_analytics,
+                session_id=session_id,
+                agent_name="OrchestratorAgent",
+                response_time_ms=response_time_ms,
+                success=False,
+                error_message=error_message,
+            ))
 
         raise  # Re-raise the exception to be handled by the main handler
 

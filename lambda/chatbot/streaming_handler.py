@@ -4,14 +4,14 @@ Streams responses from OpenAI Agents SDK in real-time.
 """
 import json
 import time
-import threading
+import asyncio
 from typing import AsyncGenerator
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from agents import Runner
 from nutritional_agents.orchestrator import orchestrator_agent
-from utils.supabase_client import SupabaseClient
+from utils.supabase_client import supabase_client
 
 
 app = FastAPI(title="Nutritional Chatbot Streaming API")
@@ -41,7 +41,7 @@ async def chat_stream(request: ChatRequest):
 
     async def generate_response() -> AsyncGenerator[str, None]:
         """Generate streaming response chunks."""
-        supabase = SupabaseClient()
+        supabase = supabase_client  # Use singleton instead of creating new instance
         start_time = time.time()
         session_id = request.session_id
         agent_used = "OrchestratorAgent"
@@ -50,30 +50,33 @@ async def chat_stream(request: ChatRequest):
         error_message = None
 
         try:
-            # Get or create session
+            # Get or create session (parallelized with get_messages when session exists)
             if session_id:
-                session = supabase.get_session(session_id)
+                # Parallel: get_session + get_messages
+                session_task = asyncio.to_thread(supabase.get_session, session_id)
+                messages_task = asyncio.to_thread(supabase.get_messages, session_id, 12, True)
+                session, conversation_history = await asyncio.gather(session_task, messages_task)
+
                 if not session:
                     yield f"data: {json.dumps({'type': 'error', 'content': 'Sesión no encontrada'})}\n\n"
                     return
             else:
                 # Create new session
                 title = request.message[:50] + "..." if len(request.message) > 50 else request.message
-                session = supabase.create_session(title=title)
+                session = await asyncio.to_thread(supabase.create_session, title=title)
                 session_id = session["id"]
+                conversation_history = []
 
             # Send session info
             yield f"data: {json.dumps({'type': 'start', 'session_id': session_id, 'title': session.get('title')})}\n\n"
 
-            # Get conversation history
-            conversation_history = supabase.get_messages(session_id, limit=12, for_openai=True)
-
-            # Save user message
-            supabase.save_message(
+            # Save user message in background (non-blocking)
+            asyncio.create_task(asyncio.to_thread(
+                supabase.save_message,
                 session_id=session_id,
                 role="user",
                 content=request.message,
-            )
+            ))
 
             # Stream the agent response
             from openai.types.responses import ResponseTextDeltaEvent
@@ -123,27 +126,23 @@ async def chat_stream(request: ChatRequest):
             # Calculate response time
             response_time_ms = (time.time() - start_time) * 1000
 
-            # Save assistant response
-            supabase.save_message(
+            # Save assistant response in background (non-blocking for faster stream end)
+            asyncio.create_task(asyncio.to_thread(
+                supabase.save_message,
                 session_id=session_id,
                 role="assistant",
                 content=response_text,
                 agent_used=agent_used
-            )
+            ))
 
-            # Save analytics asynchronously
-            def save_analytics_async():
-                try:
-                    supabase.save_agent_analytics(
-                        session_id=session_id,
-                        agent_name=agent_used,
-                        response_time_ms=response_time_ms,
-                        success=True,
-                    )
-                except Exception as e:
-                    print(f"Background analytics save failed: {e}")
-
-            threading.Thread(target=save_analytics_async, daemon=True).start()
+            # Save analytics in background
+            asyncio.create_task(asyncio.to_thread(
+                supabase.save_agent_analytics,
+                session_id=session_id,
+                agent_name=agent_used,
+                response_time_ms=response_time_ms,
+                success=True,
+            ))
 
             # Send completion event
             yield f"data: {json.dumps({'type': 'end', 'agent_used': agent_used})}\n\n"
@@ -156,21 +155,16 @@ async def chat_stream(request: ChatRequest):
             # Calculate response time even on error
             response_time_ms = (time.time() - start_time) * 1000
 
-            # Save error analytics
+            # Save error analytics in background
             if session_id:
-                def save_error_analytics_async():
-                    try:
-                        supabase.save_agent_analytics(
-                            session_id=session_id,
-                            agent_name=agent_used,
-                            response_time_ms=response_time_ms,
-                            success=False,
-                            error_message=error_message,
-                        )
-                    except Exception as analytics_error:
-                        print(f"Failed to save error analytics: {analytics_error}")
-
-                threading.Thread(target=save_error_analytics_async, daemon=True).start()
+                asyncio.create_task(asyncio.to_thread(
+                    supabase.save_agent_analytics,
+                    session_id=session_id,
+                    agent_name=agent_used,
+                    response_time_ms=response_time_ms,
+                    success=False,
+                    error_message=error_message,
+                ))
 
             yield f"data: {json.dumps({'type': 'error', 'content': f'Error: {str(e)}'})}\n\n"
 
