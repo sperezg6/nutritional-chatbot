@@ -28,7 +28,7 @@ export class NutritionalChatbotStack extends cdk.Stack {
           image: lambda.Runtime.PYTHON_3_11.bundlingImage,
           command: [
             'bash', '-c',
-            'pip install -r requirements.txt -t /asset-output/python && cp -r . /asset-output/'
+            'pip install -r requirements.txt -t /asset-output/python && cp -r . /asset-output/ && chmod +x /asset-output/run_streaming.sh'
           ],
         },
       }),
@@ -56,6 +56,16 @@ export class NutritionalChatbotStack extends cdk.Stack {
 
     // Grant secrets access
     secrets.grantRead(chatbotFunction);
+
+    // ===== LAMBDA FUNCTION URL (bypasses API Gateway 29s limit) =====
+    const chatFunctionUrl = chatbotFunction.addFunctionUrl({
+      authType: lambda.FunctionUrlAuthType.NONE,
+      cors: {
+        allowedOrigins: ['*'],
+        allowedMethods: [lambda.HttpMethod.POST, lambda.HttpMethod.OPTIONS],
+        allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-Id'],
+      },
+    });
 
     // API Gateway to expose the Lambda function
     const api = new apigateway.RestApi(this, 'NutritionalChatbotApi', {
@@ -151,6 +161,17 @@ export class NutritionalChatbotStack extends cdk.Stack {
     // Grant secrets access to streaming function
     secrets.grantRead(streamingChatbotFunction);
 
+    // ===== STREAMING FUNCTION URL (true streaming, no API Gateway buffering) =====
+    const streamingFunctionUrl = streamingChatbotFunction.addFunctionUrl({
+      authType: lambda.FunctionUrlAuthType.NONE,
+      invokeMode: lambda.InvokeMode.RESPONSE_STREAM,  // Enable true response streaming!
+      cors: {
+        allowedOrigins: ['*'],
+        allowedMethods: [lambda.HttpMethod.POST, lambda.HttpMethod.OPTIONS],
+        allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-Id'],
+      },
+    });
+
     // /chat-stream endpoint with streaming configuration
     const chatStreamResource = api.root.addResource('chat-stream');
 
@@ -217,6 +238,17 @@ export class NutritionalChatbotStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'StreamingFunctionName', {
       value: streamingChatbotFunction.functionName,
       description: 'Streaming Lambda function name',
+    });
+
+    // ===== FUNCTION URL OUTPUTS (use these instead of API Gateway for long requests) =====
+    new cdk.CfnOutput(this, 'ChatFunctionUrl', {
+      value: chatFunctionUrl.url,
+      description: 'Lambda Function URL for chat (no 29s timeout limit, uses Lambda 15min timeout)',
+    });
+
+    new cdk.CfnOutput(this, 'StreamingFunctionUrl', {
+      value: streamingFunctionUrl.url,
+      description: 'Lambda Function URL for streaming chat (true SSE streaming)',
     });
 
 
