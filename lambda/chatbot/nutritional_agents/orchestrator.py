@@ -125,5 +125,5 @@ orchestrator_agent = Agent(
         monitoring_agent,
         safety_agent
     ],
-    model="gpt-4o",
+    model="gpt-5-nano-2025-08-07",
 )
