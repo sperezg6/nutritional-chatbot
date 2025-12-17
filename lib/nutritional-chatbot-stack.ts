@@ -162,9 +162,11 @@ export class NutritionalChatbotStack extends cdk.Stack {
     secrets.grantRead(streamingChatbotFunction);
 
     // ===== STREAMING FUNCTION URL (true streaming, no API Gateway buffering) =====
-    const streamingFunctionUrl = streamingChatbotFunction.addFunctionUrl({
+    // Note: RESPONSE_STREAM invoke mode enables true SSE streaming
+    const streamingFunctionUrl = new lambda.FunctionUrl(this, 'StreamingFunctionUrl', {
+      function: streamingChatbotFunction,
       authType: lambda.FunctionUrlAuthType.NONE,
-      invokeMode: lambda.InvokeMode.RESPONSE_STREAM,  // Enable true response streaming!
+      invokeMode: lambda.InvokeMode.RESPONSE_STREAM,
       cors: {
         allowedOrigins: ['*'],
         allowedMethods: [lambda.HttpMethod.POST, lambda.HttpMethod.OPTIONS],
