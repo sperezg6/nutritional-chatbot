@@ -70,13 +70,13 @@ async def chat_stream(request: ChatRequest):
             # Send session info
             yield f"data: {json.dumps({'type': 'start', 'session_id': session_id, 'title': session.get('title')})}\n\n"
 
-            # Save user message in background (non-blocking)
-            asyncio.create_task(asyncio.to_thread(
+            # Save user message BEFORE running agent (ensures complete history)
+            await asyncio.to_thread(
                 supabase.save_message,
                 session_id=session_id,
                 role="user",
                 content=request.message,
-            ))
+            )
 
             # Stream the agent response
             from openai.types.responses import ResponseTextDeltaEvent
@@ -126,14 +126,14 @@ async def chat_stream(request: ChatRequest):
             # Calculate response time
             response_time_ms = (time.time() - start_time) * 1000
 
-            # Save assistant response in background (non-blocking for faster stream end)
-            asyncio.create_task(asyncio.to_thread(
+            # Save assistant response (await to ensure history consistency)
+            await asyncio.to_thread(
                 supabase.save_message,
                 session_id=session_id,
                 role="assistant",
                 content=response_text,
                 agent_used=agent_used
-            ))
+            )
 
             # Save analytics in background
             asyncio.create_task(asyncio.to_thread(
