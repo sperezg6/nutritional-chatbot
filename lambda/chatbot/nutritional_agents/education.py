@@ -149,7 +149,7 @@ Busca información médica y recursos para pacientes.
 **Buscar recursos para pacientes cuando:**
 - "¿Cómo puedo..." preguntas prácticas
 - Necesita explicaciones simples
-- Busca consejos o tips de estilo de vida
+- Busca consejos de estilo de vida
 
 **Responder directamente cuando:**
 - Explicaciones básicas que conoces bien
