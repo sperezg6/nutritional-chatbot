@@ -127,14 +127,14 @@ class SupabaseClient:
     ) -> dict:
         """
         Save a message to the conversation.
-        
+
         Args:
             session_id: UUID of the session
             role: 'user', 'assistant', or 'system'
             content: Message content
             agent_used: Which agent generated this (for assistant messages)
             tool_calls: Tool calls made (for debugging)
-        
+
         Returns:
             Created message record
         """
@@ -145,23 +145,23 @@ class SupabaseClient:
             .order("sequence_number", desc=True) \
             .limit(1) \
             .execute()
-        
+
         next_seq = 1
         if count_response.data:
             next_seq = count_response.data[0]["sequence_number"] + 1
-        
+
         data = {
             "session_id": session_id,
             "role": role,
             "content": content,
             "sequence_number": next_seq,
         }
-        
+
         if agent_used:
             data["agent_used"] = agent_used
         if tool_calls:
             data["tool_calls"] = tool_calls
-        
+
         response = self.client.table("messages").insert(data).execute()
         return response.data[0] if response.data else None
     
