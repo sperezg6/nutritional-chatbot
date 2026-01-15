@@ -3,6 +3,7 @@ from .nutrition_plan import nutrition_plan_agent
 from .education import education_agent
 from .monitoring import monitoring_agent
 from .safety import safety_agent
+from .alba_knowledge import ALBA_KNOWLEDGE
 
 ORCHESTRATOR_AGENT_SYSTEM_PROMPT = """
 # Rol y Objetivo
@@ -274,9 +275,13 @@ Sí, en general puede tomar café con moderación (1-2 tazas al día), pero depe
 - NO uses emojis en exceso (máximo 1-2 si es apropiado)
 
 """
+
+# Combine base prompt with Alba knowledge
+FULL_ORCHESTRATOR_PROMPT = ORCHESTRATOR_AGENT_SYSTEM_PROMPT + ALBA_KNOWLEDGE
+
 orchestrator_agent = Agent(
     name="Orchestrator",
-    instructions=ORCHESTRATOR_AGENT_SYSTEM_PROMPT,
+    instructions=FULL_ORCHESTRATOR_PROMPT,
     handoffs=[
         nutrition_plan_agent,
         education_agent,
