@@ -4,15 +4,21 @@ Streams responses from OpenAI Agents SDK in real-time.
 """
 import json
 import time
+import re
 import asyncio
 from typing import AsyncGenerator
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from agents import Runner
 from nutritional_agents.orchestrator import orchestrator_agent
 from utils.supabase_client import supabase_client
 
+# UUID validation pattern
+UUID_PATTERN = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    re.IGNORECASE
+)
 
 app = FastAPI(title="Nutritional Chatbot Streaming API")
 
@@ -23,6 +29,15 @@ app = FastAPI(title="Nutritional Chatbot Streaming API")
 class ChatRequest(BaseModel):
     message: str
     session_id: str | None = None
+
+    @field_validator('session_id')
+    @classmethod
+    def validate_session_id(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if not UUID_PATTERN.match(v):
+            raise ValueError('ID de sesión inválido')
+        return v
 
 
 class ChatChunk(BaseModel):

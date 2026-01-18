@@ -6,9 +6,22 @@ Returns complete response (non-streaming).
 import json
 import asyncio
 import time
+import re
 from agents import Runner
 from nutritional_agents.orchestrator import orchestrator_agent
 from utils.supabase_client import supabase_client
+
+# UUID validation pattern
+UUID_PATTERN = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    re.IGNORECASE
+)
+
+def is_valid_uuid(value: str) -> bool:
+    """Validate that a string is a valid UUID format."""
+    if not value or not isinstance(value, str):
+        return False
+    return bool(UUID_PATTERN.match(value))
 
 
 def handler(event: dict, context) -> dict:
@@ -28,6 +41,10 @@ def handler(event: dict, context) -> dict:
 
         if not message:
             return response(400, {"error": "El mensaje es requerido"})
+
+        # Validate session_id format if provided
+        if session_id and not is_valid_uuid(session_id):
+            return response(400, {"error": "ID de sesión inválido"})
 
         # Run async handler
         result = asyncio.run(process_message(message, session_id))
