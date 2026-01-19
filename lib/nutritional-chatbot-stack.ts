@@ -64,7 +64,7 @@ export class NutritionalChatbotStack extends cdk.Stack {
       deployOptions: {
         throttlingBurstLimit: 100,
         throttlingRateLimit: 50,
-        dataTraceEnabled: true,
+        dataTraceEnabled: false,
         metricsEnabled: true,
       },
       defaultCorsPreflightOptions: {
