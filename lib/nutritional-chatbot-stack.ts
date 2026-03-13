@@ -4,24 +4,103 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as path from 'path';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
-
-
-// import * as sqs from 'aws-cdk-lib/aws-sqs';
+import { AttributeType } from 'aws-cdk-lib/aws-dynamodb';
+import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
+import { DynamoDBConstruct } from './constructs/dynamoDb/dynamoDB-construct';
+import { LambdaConstruct } from './constructs/lambda/lambda-construct';
 
 export class NutritionalChatbotStack extends cdk.Stack {
   public readonly apiUrl: string;
-  
+
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // The code that defines your stack goes here
+    // ===== SECRETS =====
     const secrets = secretsmanager.Secret.fromSecretNameV2(
       this,
       'ChatbotSecrets',
       `kidney-nutritional-chatbot/secrets`
     );
 
-    // Lambda Dependency Layer
+    // ===== DYNAMODB TABLES =====
+
+    const sessionsTable = new DynamoDBConstruct(this, 'SessionsTable', {
+      tableName: 'nutritional-chatbot-sessions',
+      partitionKey: 'session_id',
+    });
+
+    const messagesTable = new DynamoDBConstruct(this, 'MessagesTable', {
+      tableName: 'nutritional-chatbot-messages',
+      partitionKey: 'session_id',
+      sortKey: 'sequence_number',
+      sortKeyType: AttributeType.NUMBER,
+      globalSecondaryIndexes: [
+        {
+          indexName: 'by_message_id',
+          partitionKey: 'message_id',
+        },
+      ],
+    });
+
+    const analyticsTable = new DynamoDBConstruct(this, 'AnalyticsTable', {
+      tableName: 'nutritional-chatbot-analytics',
+      partitionKey: 'session_id',
+      sortKey: 'created_at',
+      globalSecondaryIndexes: [
+        {
+          indexName: 'by_date',
+          partitionKey: 'date_partition',
+          sortKey: 'created_at',
+        },
+      ],
+    });
+
+    const feedbackTable = new DynamoDBConstruct(this, 'FeedbackTable', {
+      tableName: 'nutritional-chatbot-feedback',
+      partitionKey: 'session_id',
+      sortKey: 'created_at',
+      globalSecondaryIndexes: [
+        {
+          indexName: 'by_date',
+          partitionKey: 'date_partition',
+          sortKey: 'created_at',
+        },
+      ],
+    });
+
+    // Collect all table ARNs + GSI ARNs for IAM
+    const allTableArns = [
+      sessionsTable.table.tableArn,
+      messagesTable.table.tableArn,
+      analyticsTable.table.tableArn,
+      feedbackTable.table.tableArn,
+    ];
+    const allArns = [
+      ...allTableArns,
+      ...allTableArns.map(arn => `${arn}/index/*`),
+    ];
+
+    const dynamoDbPolicy = new PolicyStatement({
+      actions: [
+        'dynamodb:GetItem',
+        'dynamodb:PutItem',
+        'dynamodb:UpdateItem',
+        'dynamodb:DeleteItem',
+        'dynamodb:Query',
+        'dynamodb:Scan',
+      ],
+      resources: allArns,
+    });
+
+    // Common environment variables
+    const tableEnvVars = {
+      SESSIONS_TABLE: sessionsTable.tableName,
+      MESSAGES_TABLE: messagesTable.tableName,
+      ANALYTICS_TABLE: analyticsTable.tableName,
+      FEEDBACK_TABLE: feedbackTable.tableName,
+    };
+
+    // ===== LAMBDA DEPENDENCY LAYER =====
     const dependenciesLayer = new lambda.LayerVersion(this, 'DependenciesLayer', {
       code: lambda.Code.fromAsset(path.join(__dirname, '../lambda/chatbot'), {
         bundling: {
@@ -35,11 +114,10 @@ export class NutritionalChatbotStack extends cdk.Stack {
       compatibleRuntimes: [lambda.Runtime.PYTHON_3_11],
       description: 'A layer with all dependencies for the Nutritional Chatbot Lambdas',
     });
-    
-    // LAMBDA FUNCTION
-    const chatbotFunction = new lambda.Function(this, 'NutritionalChatbotFunction', {
+
+    // ===== CHATBOT LAMBDA =====
+    const chatbotLambda = new LambdaConstruct(this, 'ChatbotFunction', {
       functionName: 'kidney-nutritional-chatbot-function',
-      runtime: lambda.Runtime.PYTHON_3_11,
       handler: 'handler.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../lambda/chatbot')),
       layers: [dependenciesLayer],
@@ -47,17 +125,16 @@ export class NutritionalChatbotStack extends cdk.Stack {
       memorySize: 2048,
       environment: {
         OPENAI_API_KEY: secrets.secretValueFromJson('OPENAI_API_KEY').unsafeUnwrap(),
-        SUPABASE_URL: secrets.secretValueFromJson('SUPABASE_URL').unsafeUnwrap(),
-        SUPABASE_SERVICE_KEY: secrets.secretValueFromJson('SUPABASE_SERVICE_KEY').unsafeUnwrap(),
+        ...tableEnvVars,
       },
-      description: 'Lambda function for the Nutritional Chatbot using OpenAI and Supabase',
+      additionalPolicies: [dynamoDbPolicy],
+      description: 'Lambda function for the Nutritional Chatbot using OpenAI and DynamoDB',
     });
 
-
     // Grant secrets access
-    secrets.grantRead(chatbotFunction);
+    secrets.grantRead(chatbotLambda.lambdaFunction);
 
-    // API Gateway to expose the Lambda function
+    // ===== API GATEWAY =====
     const api = new apigateway.RestApi(this, 'NutritionalChatbotApi', {
       restApiName: 'Kidney Nutritional Chatbot Service',
       description: 'This service serves the Kidney Nutritional Chatbot.',
@@ -81,8 +158,7 @@ export class NutritionalChatbotStack extends cdk.Stack {
 
     // /chat endpoint
     const chatResource = api.root.addResource('chat');
-
-    const chatIntegration = new apigateway.LambdaIntegration(chatbotFunction, {
+    const chatIntegration = new apigateway.LambdaIntegration(chatbotLambda.lambdaFunction, {
       timeout: cdk.Duration.seconds(29),
       proxy: true
     });
@@ -92,7 +168,7 @@ export class NutritionalChatbotStack extends cdk.Stack {
       methodResponses: [
         {
           statusCode: '200',
-          responseParameters:{
+          responseParameters: {
             'method.response.header.Access-Control-Allow-Origin': true,
           },
         },
@@ -118,45 +194,41 @@ export class NutritionalChatbotStack extends cdk.Stack {
       })
     ));
 
-    // ===== STREAMING LAMBDA FUNCTION =====
+    // ===== STREAMING LAMBDA =====
 
-    // Lambda Web Adapter Layer (for Python streaming support)
     const lambdaAdapterLayer = lambda.LayerVersion.fromLayerVersionArn(
       this,
       'LambdaAdapterLayer',
       `arn:aws:lambda:${this.region}:753240598075:layer:LambdaAdapterLayerX86:25`
     );
 
-    // Streaming Lambda Function with FastAPI + Lambda Web Adapter
-    const streamingChatbotFunction = new lambda.Function(this, 'StreamingChatbotFunction', {
+    const streamingLambda = new LambdaConstruct(this, 'StreamingChatbotFunction', {
       functionName: 'kidney-nutritional-chatbot-streaming-function',
-      runtime: lambda.Runtime.PYTHON_3_11,
-      handler: 'run_streaming.sh',  // Points to startup script
+      handler: 'run_streaming.sh',
       code: lambda.Code.fromAsset(path.join(__dirname, '../lambda/chatbot')),
       layers: [dependenciesLayer, lambdaAdapterLayer],
-      timeout: cdk.Duration.minutes(15),  // Extended timeout for streaming
+      timeout: cdk.Duration.minutes(15),
       memorySize: 2048,
       environment: {
         OPENAI_API_KEY: secrets.secretValueFromJson('OPENAI_API_KEY').unsafeUnwrap(),
-        SUPABASE_URL: secrets.secretValueFromJson('SUPABASE_URL').unsafeUnwrap(),
-        SUPABASE_SERVICE_KEY: secrets.secretValueFromJson('SUPABASE_SERVICE_KEY').unsafeUnwrap(),
-        AWS_LAMBDA_EXEC_WRAPPER: '/opt/bootstrap',  // Required for Lambda Web Adapter
-        AWS_LWA_INVOKE_MODE: 'response_stream',  // Enable streaming mode
-        AWS_LWA_PORT: '8080',  // FastAPI port
-        PYTHONPATH: '/var/task:/opt/python',  // Ensure Python can find layer modules
+        AWS_LAMBDA_EXEC_WRAPPER: '/opt/bootstrap',
+        AWS_LWA_INVOKE_MODE: 'response_stream',
+        AWS_LWA_PORT: '8080',
+        PYTHONPATH: '/var/task:/opt/python',
+        ...tableEnvVars,
       },
+      additionalPolicies: [dynamoDbPolicy],
       description: 'Streaming Lambda function for Nutritional Chatbot using OpenAI Agents and FastAPI',
     });
 
     // Grant secrets access to streaming function
-    secrets.grantRead(streamingChatbotFunction);
+    secrets.grantRead(streamingLambda.lambdaFunction);
 
-    // /chat-stream endpoint with streaming configuration
+    // /chat-stream endpoint
     const chatStreamResource = api.root.addResource('chat-stream');
 
-    const streamingIntegration = new apigateway.LambdaIntegration(streamingChatbotFunction, {
+    const streamingIntegration = new apigateway.LambdaIntegration(streamingLambda.lambdaFunction, {
       proxy: true,
-      // Enable streaming response mode
       integrationResponses: [{
         statusCode: '200',
         responseParameters: {
@@ -190,7 +262,7 @@ export class NutritionalChatbotStack extends cdk.Stack {
       },
     });
 
-    // ==== OUTPUTS ====
+    // ===== OUTPUTS =====
     this.apiUrl = api.url;
 
     new cdk.CfnOutput(this, 'NutritionalChatbotApiUrl', {
@@ -209,21 +281,14 @@ export class NutritionalChatbotStack extends cdk.Stack {
       description: 'Streaming chat endpoint URL',
     });
 
-     new cdk.CfnOutput(this, 'FunctionName', {
-      value: chatbotFunction.functionName,
+    new cdk.CfnOutput(this, 'FunctionName', {
+      value: chatbotLambda.lambdaFunction.functionName,
       description: 'Lambda function name',
     });
 
     new cdk.CfnOutput(this, 'StreamingFunctionName', {
-      value: streamingChatbotFunction.functionName,
+      value: streamingLambda.lambdaFunction.functionName,
       description: 'Streaming Lambda function name',
     });
-
-
-    
-    // example resource
-    // const queue = new sqs.Queue(this, 'NutritionalChatbotQueue', {
-    //   visibilityTimeout: cdk.Duration.seconds(300)
-    // });
   }
 }

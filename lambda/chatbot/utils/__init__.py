@@ -1,4 +1,3 @@
-from .supabase_client import SupabaseClient
+from .dynamodb_client import DynamoDBClient
 
-__all__ = ["SupabaseClient"]    
-
+__all__ = ["DynamoDBClient"]

@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 from agents import Runner
 from nutritional_agents.orchestrator import orchestrator_agent
-from utils.supabase_client import supabase_client
+from utils.dynamodb_client import dynamodb_client
 
 # UUID validation pattern
 UUID_PATTERN = re.compile(
@@ -56,7 +56,7 @@ async def chat_stream(request: ChatRequest):
 
     async def generate_response() -> AsyncGenerator[str, None]:
         """Generate streaming response chunks."""
-        supabase = supabase_client  # Use singleton instead of creating new instance
+        db = dynamodb_client  # Use singleton instead of creating new instance
         start_time = time.time()
         session_id = request.session_id
         agent_used = "OrchestratorAgent"
@@ -68,8 +68,8 @@ async def chat_stream(request: ChatRequest):
             # Get or create session (parallelized with get_messages when session exists)
             if session_id:
                 # Parallel: get_session + get_messages
-                session_task = asyncio.to_thread(supabase.get_session, session_id)
-                messages_task = asyncio.to_thread(supabase.get_messages, session_id, 20, True)
+                session_task = asyncio.to_thread(db.get_session, session_id)
+                messages_task = asyncio.to_thread(db.get_messages, session_id, 20, True)
                 session, conversation_history = await asyncio.gather(session_task, messages_task)
 
                 if not session:
@@ -78,7 +78,7 @@ async def chat_stream(request: ChatRequest):
             else:
                 # Create new session
                 title = request.message[:50] + "..." if len(request.message) > 50 else request.message
-                session = await asyncio.to_thread(supabase.create_session, title=title)
+                session = await asyncio.to_thread(db.create_session, title=title)
                 session_id = session["id"]
                 conversation_history = []
 
@@ -87,7 +87,7 @@ async def chat_stream(request: ChatRequest):
 
             # Save user message BEFORE running agent (ensures complete history)
             await asyncio.to_thread(
-                supabase.save_message,
+                db.save_message,
                 session_id=session_id,
                 role="user",
                 content=request.message,
@@ -101,7 +101,7 @@ async def chat_stream(request: ChatRequest):
                 input=conversation_history + [{"role": "user", "content": request.message}],
                 context={
                     "session_id": session_id,
-                    "supabase": supabase,
+                    "db": db,
                 },
             )
 
@@ -132,7 +132,7 @@ async def chat_stream(request: ChatRequest):
                     input=conversation_history + [{"role": "user", "content": request.message}],
                     context={
                         "session_id": session_id,
-                        "supabase": supabase,
+                        "db": db,
                     },
                 )
                 response_text = result.final_output
@@ -143,7 +143,7 @@ async def chat_stream(request: ChatRequest):
 
             # Save assistant response (await to ensure history consistency)
             await asyncio.to_thread(
-                supabase.save_message,
+                db.save_message,
                 session_id=session_id,
                 role="assistant",
                 content=response_text,
@@ -152,7 +152,7 @@ async def chat_stream(request: ChatRequest):
 
             # Save analytics in background
             asyncio.create_task(asyncio.to_thread(
-                supabase.save_agent_analytics,
+                db.save_agent_analytics,
                 session_id=session_id,
                 agent_name=agent_used,
                 response_time_ms=response_time_ms,
@@ -173,7 +173,7 @@ async def chat_stream(request: ChatRequest):
             # Save error analytics in background
             if session_id:
                 asyncio.create_task(asyncio.to_thread(
-                    supabase.save_agent_analytics,
+                    db.save_agent_analytics,
                     session_id=session_id,
                     agent_name=agent_used,
                     response_time_ms=response_time_ms,

@@ -9,7 +9,7 @@ import time
 import re
 from agents import Runner
 from nutritional_agents.orchestrator import orchestrator_agent
-from utils.supabase_client import supabase_client
+from utils.dynamodb_client import dynamodb_client
 
 # UUID validation pattern
 UUID_PATTERN = re.compile(
@@ -58,7 +58,7 @@ def handler(event: dict, context) -> dict:
 
 async def process_message(message: str, session_id: str = None) -> dict:
     """Process a chat message and return response."""
-    supabase = supabase_client  # Use singleton instead of creating new instance
+    db = dynamodb_client  # Use singleton instead of creating new instance
     start_time = time.time()
     success = True
     error_message = None
@@ -67,8 +67,8 @@ async def process_message(message: str, session_id: str = None) -> dict:
         # Get or create session (parallelized with get_messages when session exists)
         if session_id:
             # Parallel: get_session + get_messages
-            session_task = asyncio.to_thread(supabase.get_session, session_id)
-            messages_task = asyncio.to_thread(supabase.get_messages, session_id, 20, True)
+            session_task = asyncio.to_thread(db.get_session, session_id)
+            messages_task = asyncio.to_thread(db.get_messages, session_id, 20, True)
             session, conversation_history = await asyncio.gather(session_task, messages_task)
 
             if not session:
@@ -76,7 +76,7 @@ async def process_message(message: str, session_id: str = None) -> dict:
         else:
             # New session - create first, then get empty history
             title = message[:50] + "..." if len(message) > 50 else message
-            session = await asyncio.to_thread(supabase.create_session, title=title)
+            session = await asyncio.to_thread(db.create_session, title=title)
             conversation_history = []
 
         session_id = session["id"]
@@ -84,7 +84,7 @@ async def process_message(message: str, session_id: str = None) -> dict:
 
         # Save user message in parallel with agent execution (fire and forget)
         save_user_msg_task = asyncio.create_task(asyncio.to_thread(
-            supabase.save_message,
+            db.save_message,
             session_id=session_id,
             role="user",
             content=message,
@@ -96,7 +96,7 @@ async def process_message(message: str, session_id: str = None) -> dict:
             input=conversation_history + [{"role": "user", "content": message}],  # Full context
             context={
                 "session_id": session_id,
-                "supabase": supabase,
+                "db": db,
             },
         )
 
@@ -115,7 +115,7 @@ async def process_message(message: str, session_id: str = None) -> dict:
 
         # Save assistant response (async for faster response)
         asyncio.create_task(asyncio.to_thread(
-            supabase.save_message,
+            db.save_message,
             session_id=session_id,
             role="assistant",
             content=response_text,
@@ -124,7 +124,7 @@ async def process_message(message: str, session_id: str = None) -> dict:
 
         # Save analytics in background (non-blocking for faster response)
         asyncio.create_task(asyncio.to_thread(
-            supabase.save_agent_analytics,
+            db.save_agent_analytics,
             session_id=session_id,
             agent_name=agent_used,
             response_time_ms=response_time_ms,
@@ -148,7 +148,7 @@ async def process_message(message: str, session_id: str = None) -> dict:
         # Save error analytics in background
         if session_id:
             asyncio.create_task(asyncio.to_thread(
-                supabase.save_agent_analytics,
+                db.save_agent_analytics,
                 session_id=session_id,
                 agent_name="OrchestratorAgent",
                 response_time_ms=response_time_ms,

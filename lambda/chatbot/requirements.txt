@@ -3,8 +3,5 @@ openai-agents==0.0.16
 pydantic==2.11.7
 pydantic_core==2.33.2
 python-dotenv==1.0.0
-supabase==2.20.0
-supabase-functions==2.20.0
-supabase-auth==2.20.0
 fastapi==0.115.6
 uvicorn==0.34.0
