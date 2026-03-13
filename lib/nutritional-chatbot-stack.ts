@@ -4,10 +4,9 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as path from 'path';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import { AttributeType } from 'aws-cdk-lib/aws-dynamodb';
-import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { DynamoDBConstruct } from './constructs/dynamoDb/dynamoDB-construct';
-import { LambdaConstruct } from './constructs/lambda/lambda-construct';
 
 export class NutritionalChatbotStack extends cdk.Stack {
   public readonly apiUrl: string;
@@ -80,7 +79,7 @@ export class NutritionalChatbotStack extends cdk.Stack {
       ...allTableArns.map(arn => `${arn}/index/*`),
     ];
 
-    const dynamoDbPolicy = new PolicyStatement({
+    const dynamoDbPolicy = new iam.PolicyStatement({
       actions: [
         'dynamodb:GetItem',
         'dynamodb:PutItem',
@@ -115,9 +114,10 @@ export class NutritionalChatbotStack extends cdk.Stack {
       description: 'A layer with all dependencies for the Nutritional Chatbot Lambdas',
     });
 
-    // ===== CHATBOT LAMBDA =====
-    const chatbotLambda = new LambdaConstruct(this, 'ChatbotFunction', {
+    // ===== CHATBOT LAMBDA (same logical ID as original) =====
+    const chatbotFunction = new lambda.Function(this, 'NutritionalChatbotFunction', {
       functionName: 'kidney-nutritional-chatbot-function',
+      runtime: lambda.Runtime.PYTHON_3_11,
       handler: 'handler.handler',
       code: lambda.Code.fromAsset(path.join(__dirname, '../lambda/chatbot')),
       layers: [dependenciesLayer],
@@ -127,12 +127,14 @@ export class NutritionalChatbotStack extends cdk.Stack {
         OPENAI_API_KEY: secrets.secretValueFromJson('OPENAI_API_KEY').unsafeUnwrap(),
         ...tableEnvVars,
       },
-      additionalPolicies: [dynamoDbPolicy],
       description: 'Lambda function for the Nutritional Chatbot using OpenAI and DynamoDB',
     });
 
+    // Add DynamoDB permissions
+    chatbotFunction.addToRolePolicy(dynamoDbPolicy);
+
     // Grant secrets access
-    secrets.grantRead(chatbotLambda.lambdaFunction);
+    secrets.grantRead(chatbotFunction);
 
     // ===== API GATEWAY =====
     const api = new apigateway.RestApi(this, 'NutritionalChatbotApi', {
@@ -158,7 +160,7 @@ export class NutritionalChatbotStack extends cdk.Stack {
 
     // /chat endpoint
     const chatResource = api.root.addResource('chat');
-    const chatIntegration = new apigateway.LambdaIntegration(chatbotLambda.lambdaFunction, {
+    const chatIntegration = new apigateway.LambdaIntegration(chatbotFunction, {
       timeout: cdk.Duration.seconds(29),
       proxy: true
     });
@@ -194,7 +196,7 @@ export class NutritionalChatbotStack extends cdk.Stack {
       })
     ));
 
-    // ===== STREAMING LAMBDA =====
+    // ===== STREAMING LAMBDA (same logical ID as original) =====
 
     const lambdaAdapterLayer = lambda.LayerVersion.fromLayerVersionArn(
       this,
@@ -202,8 +204,9 @@ export class NutritionalChatbotStack extends cdk.Stack {
       `arn:aws:lambda:${this.region}:753240598075:layer:LambdaAdapterLayerX86:25`
     );
 
-    const streamingLambda = new LambdaConstruct(this, 'StreamingChatbotFunction', {
+    const streamingChatbotFunction = new lambda.Function(this, 'StreamingChatbotFunction', {
       functionName: 'kidney-nutritional-chatbot-streaming-function',
+      runtime: lambda.Runtime.PYTHON_3_11,
       handler: 'run_streaming.sh',
       code: lambda.Code.fromAsset(path.join(__dirname, '../lambda/chatbot')),
       layers: [dependenciesLayer, lambdaAdapterLayer],
@@ -217,17 +220,19 @@ export class NutritionalChatbotStack extends cdk.Stack {
         PYTHONPATH: '/var/task:/opt/python',
         ...tableEnvVars,
       },
-      additionalPolicies: [dynamoDbPolicy],
       description: 'Streaming Lambda function for Nutritional Chatbot using OpenAI Agents and FastAPI',
     });
 
+    // Add DynamoDB permissions
+    streamingChatbotFunction.addToRolePolicy(dynamoDbPolicy);
+
     // Grant secrets access to streaming function
-    secrets.grantRead(streamingLambda.lambdaFunction);
+    secrets.grantRead(streamingChatbotFunction);
 
     // /chat-stream endpoint
     const chatStreamResource = api.root.addResource('chat-stream');
 
-    const streamingIntegration = new apigateway.LambdaIntegration(streamingLambda.lambdaFunction, {
+    const streamingIntegration = new apigateway.LambdaIntegration(streamingChatbotFunction, {
       proxy: true,
       integrationResponses: [{
         statusCode: '200',
@@ -282,12 +287,12 @@ export class NutritionalChatbotStack extends cdk.Stack {
     });
 
     new cdk.CfnOutput(this, 'FunctionName', {
-      value: chatbotLambda.lambdaFunction.functionName,
+      value: chatbotFunction.functionName,
       description: 'Lambda function name',
     });
 
     new cdk.CfnOutput(this, 'StreamingFunctionName', {
-      value: streamingLambda.lambdaFunction.functionName,
+      value: streamingChatbotFunction.functionName,
       description: 'Streaming Lambda function name',
     });
   }
