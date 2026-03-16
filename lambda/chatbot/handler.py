@@ -7,10 +7,11 @@ import json
 import asyncio
 import time
 import re
-from agents import Runner
+from agents import Runner, InputGuardrailTripwireTriggered
 from nutritional_agents.orchestrator import orchestrator_agent
-from nutritional_agents.safety import run_safety_check
 from utils.dynamodb_client import dynamodb_client
+
+MAX_MESSAGE_LENGTH = 2000
 
 # UUID validation pattern
 UUID_PATTERN = re.compile(
@@ -42,6 +43,9 @@ def handler(event: dict, context) -> dict:
 
         if not message:
             return response(400, {"error": "El mensaje es requerido"})
+
+        if len(message) > MAX_MESSAGE_LENGTH:
+            return response(400, {"error": f"El mensaje no puede exceder {MAX_MESSAGE_LENGTH} caracteres"})
 
         # Validate session_id format if provided
         if session_id and not is_valid_uuid(session_id):
@@ -102,9 +106,6 @@ async def process_message(message: str, session_id: str = None) -> dict:
 
         response_text = result.final_output
 
-        # Post-process every response through safety checker
-        response_text = await run_safety_check(response_text)
-
         agent_used = "OrchestratorAgent"
         if hasattr(result, 'last_agent') and result.last_agent:
             agent_used = getattr(result.last_agent, 'name', str(result.last_agent))
@@ -135,6 +136,17 @@ async def process_message(message: str, session_id: str = None) -> dict:
             "response": response_text,
             "session_id": session_id,
             "title": session.get("title"),
+        }
+
+    except InputGuardrailTripwireTriggered:
+        print(f"Input guardrail triggered for session {session_id}")
+        return {
+            "response": (
+                "Solo puedo ayudarle con temas de nutrición y enfermedad renal. "
+                "¿Tiene alguna pregunta sobre su dieta o condición renal?"
+            ),
+            "session_id": session_id,
+            "title": None,
         }
 
     except Exception as e:

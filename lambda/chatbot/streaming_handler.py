@@ -10,10 +10,11 @@ from typing import AsyncGenerator
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
-from agents import Runner
+from agents import Runner, InputGuardrailTripwireTriggered
 from nutritional_agents.orchestrator import orchestrator_agent
-from nutritional_agents.safety import run_safety_check
 from utils.dynamodb_client import dynamodb_client
+
+MAX_MESSAGE_LENGTH = 2000
 
 # UUID validation pattern
 UUID_PATTERN = re.compile(
@@ -30,6 +31,13 @@ app = FastAPI(title="Nutritional Chatbot Streaming API")
 class ChatRequest(BaseModel):
     message: str
     session_id: str | None = None
+
+    @field_validator('message')
+    @classmethod
+    def validate_message_length(cls, v: str) -> str:
+        if len(v) > MAX_MESSAGE_LENGTH:
+            raise ValueError(f'El mensaje no puede exceder {MAX_MESSAGE_LENGTH} caracteres')
+        return v
 
     @field_validator('session_id')
     @classmethod
@@ -123,13 +131,6 @@ async def chat_stream(request: ChatRequest):
                 response_text = "Lo siento, ocurrió un problema al generar la respuesta. Por favor intente de nuevo."
                 yield f"data: {json.dumps({'type': 'chunk', 'content': response_text})}\n\n"
 
-            # Post-process every response through safety checker
-            checked_text = await run_safety_check(response_text)
-            if checked_text != response_text:
-                # Safety modified/blocked the response — send correction to client
-                yield f"data: {json.dumps({'type': 'safety_correction', 'content': checked_text})}\n\n"
-                response_text = checked_text
-
             # Calculate response time
             response_time_ms = (time.time() - start_time) * 1000
 
@@ -153,6 +154,16 @@ async def chat_stream(request: ChatRequest):
 
             # Send completion event
             yield f"data: {json.dumps({'type': 'end', 'agent_used': agent_used})}\n\n"
+
+        except InputGuardrailTripwireTriggered:
+            print(f"Input guardrail triggered for session {session_id}")
+            safe_msg = (
+                "Solo puedo ayudarle con temas de nutrición y enfermedad renal. "
+                "¿Tiene alguna pregunta sobre su dieta o condición renal?"
+            )
+            yield f"data: {json.dumps({'type': 'chunk', 'content': safe_msg})}\n\n"
+            yield f"data: {json.dumps({'type': 'end', 'agent_used': 'InputGuardrail'})}\n\n"
+            return
 
         except Exception as e:
             success = False
