@@ -9,6 +9,7 @@ import time
 import re
 from agents import Runner
 from nutritional_agents.orchestrator import orchestrator_agent
+from nutritional_agents.safety import run_safety_check
 from utils.dynamodb_client import dynamodb_client
 
 # UUID validation pattern
@@ -93,17 +94,16 @@ async def process_message(message: str, session_id: str = None) -> dict:
         # Run the agent (user message saves in parallel)
         result = await Runner.run(
             orchestrator_agent,
-            input=conversation_history + [{"role": "user", "content": message}],  # Full context
-            context={
-                "session_id": session_id,
-                "db": db,
-            },
+            input=conversation_history + [{"role": "user", "content": message}],
         )
 
         # Ensure user message is saved before continuing
         await save_user_msg_task
 
         response_text = result.final_output
+
+        # Post-process every response through safety checker
+        response_text = await run_safety_check(response_text)
 
         agent_used = "OrchestratorAgent"
         if hasattr(result, 'last_agent') and result.last_agent:
@@ -113,23 +113,23 @@ async def process_message(message: str, session_id: str = None) -> dict:
         # Calculate response time
         response_time_ms = (time.time() - start_time) * 1000
 
-        # Save assistant response (async for faster response)
-        asyncio.create_task(asyncio.to_thread(
-            db.save_message,
-            session_id=session_id,
-            role="assistant",
-            content=response_text,
-            agent_used=agent_used
-        ))
-
-        # Save analytics in background (non-blocking for faster response)
-        asyncio.create_task(asyncio.to_thread(
-            db.save_agent_analytics,
-            session_id=session_id,
-            agent_name=agent_used,
-            response_time_ms=response_time_ms,
-            success=True,
-        ))
+        # Save assistant response and analytics (awaited to avoid data loss in Lambda)
+        await asyncio.gather(
+            asyncio.to_thread(
+                db.save_message,
+                session_id=session_id,
+                role="assistant",
+                content=response_text,
+                agent_used=agent_used,
+            ),
+            asyncio.to_thread(
+                db.save_agent_analytics,
+                session_id=session_id,
+                agent_name=agent_used,
+                response_time_ms=response_time_ms,
+                success=True,
+            ),
+        )
 
         return {
             "response": response_text,
@@ -145,16 +145,19 @@ async def process_message(message: str, session_id: str = None) -> dict:
         # Calculate response time even on error
         response_time_ms = (time.time() - start_time) * 1000
 
-        # Save error analytics in background
+        # Save error analytics (awaited to avoid data loss in Lambda)
         if session_id:
-            asyncio.create_task(asyncio.to_thread(
-                db.save_agent_analytics,
-                session_id=session_id,
-                agent_name="OrchestratorAgent",
-                response_time_ms=response_time_ms,
-                success=False,
-                error_message=error_message,
-            ))
+            try:
+                await asyncio.to_thread(
+                    db.save_agent_analytics,
+                    session_id=session_id,
+                    agent_name="OrchestratorAgent",
+                    response_time_ms=response_time_ms,
+                    success=False,
+                    error_message=error_message,
+                )
+            except Exception as analytics_err:
+                print(f"Failed to save error analytics: {analytics_err}")
 
         raise  # Re-raise the exception to be handled by the main handler
 

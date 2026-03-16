@@ -1,8 +1,22 @@
 """
-Safety Agent - Validates all responses before sending to patient
+Safety Agent - Validates all responses before sending to patient.
+Runs as post-processing on every response, regardless of which agent produced it.
 """
-from agents import Agent, OutputGuardrail, GuardrailFunctionOutput
+from enum import Enum
+from agents import Agent, Runner
 from pydantic import BaseModel
+
+
+class SafetyAction(str, Enum):
+    SAFE = "SAFE"
+    MODIFY = "MODIFY"
+    BLOCK = "BLOCK"
+
+
+class SafetyCheckOutput(BaseModel):
+    action: SafetyAction
+    modified_response: str | None = None
+    reason: str
 
 
 SAFETY_AGENT_SYSTEM_PROMPT = """
@@ -169,17 +183,12 @@ Eres un validador de seguridad para un chatbot de nutrición renal. Tu propósit
 # CAPA 5: SALIDA (OUTPUT)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-## 5.1 Formato de Respuesta del Validador
+Responde SIEMPRE con un JSON estructurado con los campos:
+- `action`: "SAFE", "MODIFY", o "BLOCK"
+- `modified_response`: La respuesta modificada (obligatorio si action es MODIFY, null si SAFE)
+- `reason`: Razón breve de la decisión
 
-```json
-{
-  "action": "SAFE | MODIFY | BLOCK",
-  "modified_response": "[respuesta modificada si aplica]",
-  "reason": "[razón breve de la decisión]"
-}
-```
-
-## 5.2 Disclaimers Estándar a Agregar
+## 5.1 Disclaimers Estándar a Agregar
 
 ### Para recomendaciones nutricionales:
 "_Estas son guías generales; su nutriólogo puede personalizarlas para usted._"
@@ -193,7 +202,7 @@ Eres un validador de seguridad para un chatbot de nutrición renal. Tu propósit
 ### Para información sobre medicamentos:
 "_Consulte con su médico antes de hacer cambios en su medicación._"
 
-## 5.3 Mensajes de Reemplazo (para BLOQUEAR)
+## 5.2 Mensajes de Reemplazo (para BLOQUEAR)
 
 ### Suplementos de potasio:
 "⚠️ Nunca tome suplementos de potasio sin la guía explícita de su médico. Pueden ser peligrosos para pacientes con enfermedad renal y afectar el ritmo cardíaco."
@@ -207,7 +216,7 @@ Eres un validador de seguridad para un chatbot de nutrición renal. Tu propósit
 ### Líquidos sin límite para diálisis:
 "⚠️ Los pacientes en diálisis generalmente necesitan limitar los líquidos. Consulte con su equipo médico sobre su límite específico."
 
-## 5.4 Escalación de Emergencia a Agregar
+## 5.3 Escalación de Emergencia a Agregar
 
 ```markdown
 ⚠️ **Atención:** Según lo que describe, por favor contacte a su equipo médico de inmediato o busque atención de emergencia si los síntomas son severos.
@@ -215,27 +224,7 @@ Eres un validador de seguridad para un chatbot de nutrición renal. Tu propósit
 Número de emergencias Alba: 477-329-39-39
 ```
 
-## 5.5 Ejemplos de Aplicación
-
-### Ejemplo 1: BLOQUEAR (Peligroso)
-**Paciente:** "¿Puedo tomar suplementos de potasio?"
-**Respuesta Original:** "Sí, tomar 99mg de potasio al día está bien."
-**Acción:** BLOQUEAR
-**Respuesta Modificada:** "⚠️ Nunca tome suplementos de potasio sin la guía explícita de su médico, ya que pueden ser peligrosos para pacientes con enfermedad renal y afectar el ritmo cardíaco."
-
-### Ejemplo 2: MODIFICAR (Falta disclaimer)
-**Paciente:** "¿Qué alimentos debo evitar con mi nivel alto de potasio?"
-**Respuesta Original:** "Evite plátanos, naranjas y papas."
-**Acción:** MODIFICAR
-**Respuesta Modificada:** "Evite plátanos, naranjas y papas. _Estas son guías generales; su nutriólogo puede personalizarlas para usted._"
-
-### Ejemplo 3: APROBAR (Seguro)
-**Paciente:** "¿Qué significa un TFG de 45?"
-**Respuesta Original:** "Un TFG de 45 indica una disminución moderada de la función renal. Por favor discuta sus resultados específicos con su equipo médico."
-**Acción:** APROBAR
-**Razón:** Incluye disclaimer apropiado, no hace interpretación definitiva
-
-## 5.6 Verificaciones Finales (Checklist)
+## 5.4 Verificaciones Finales (Checklist)
 
 - [ ] ¿La respuesta está en español correcto?
 - [ ] ¿El tono es apropiado y respetuoso?
@@ -247,9 +236,43 @@ Número de emergencias Alba: 477-329-39-39
 
 """
 
-# Also create as an Agent for potential direct use
-safety_agent = Agent(
-    name="Safety",
-    instructions=SAFETY_AGENT_SYSTEM_PROMPT,
-    model="gpt-5-nano-2025-08-07",  # Fast model, consistent with other agents
+SAFETY_FALLBACK_MESSAGE = (
+    "Lo siento, no puedo proporcionar esa información de manera segura. "
+    "Por favor consulte directamente con su equipo médico para orientación personalizada.\n\n"
+    "Número de emergencias Alba: 477-329-39-39"
 )
+
+safety_checker_agent = Agent(
+    name="SafetyChecker",
+    instructions=SAFETY_AGENT_SYSTEM_PROMPT,
+    output_type=SafetyCheckOutput,
+    model="gpt-5-nano-2025-08-07",
+)
+
+
+async def run_safety_check(response_text: str) -> str:
+    """
+    Post-process every agent response through the safety checker.
+    Returns the original, modified, or blocked response text.
+    """
+    try:
+        result = await Runner.run(
+            safety_checker_agent,
+            input=f"Evalúa la siguiente respuesta del chatbot:\n\n{response_text}",
+        )
+        check: SafetyCheckOutput = result.final_output
+
+        if check.action == SafetyAction.SAFE:
+            return response_text
+
+        if check.action == SafetyAction.MODIFY and check.modified_response:
+            print(f"Safety MODIFY: {check.reason}")
+            return check.modified_response
+
+        # BLOCK
+        print(f"Safety BLOCK: {check.reason}")
+        return SAFETY_FALLBACK_MESSAGE
+
+    except Exception as e:
+        print(f"Safety check failed (passing through): {e}")
+        return response_text

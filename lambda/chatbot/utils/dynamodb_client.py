@@ -6,7 +6,8 @@ Drop-in replacement for SupabaseClient with identical method signatures.
 import os
 import uuid
 from typing import Optional
-from datetime import datetime, date, timedelta
+import time as _time
+from datetime import datetime, date, timedelta, timezone
 from decimal import Decimal
 
 import boto3
@@ -55,7 +56,7 @@ class DynamoDBClient:
 
     def create_session(self, title: str = None, metadata: dict = None) -> dict:
         session_id = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         item = {
             "session_id": session_id,
             "id": session_id,  # alias kept for compatibility
@@ -84,7 +85,7 @@ class DynamoDBClient:
             UpdateExpression="SET is_active = :val, updated_at = :now",
             ExpressionAttributeValues={
                 ":val": False,
-                ":now": datetime.utcnow().isoformat(),
+                ":now": datetime.now(timezone.utc).isoformat(),
             },
             ReturnValues="ALL_NEW",
         )
@@ -124,18 +125,11 @@ class DynamoDBClient:
         agent_used: str = None,
         tool_calls: dict = None,
     ) -> dict:
-        # Get next sequence number
-        resp = self.messages.query(
-            KeyConditionExpression=Key("session_id").eq(session_id),
-            ScanIndexForward=False,
-            Limit=1,
-            ProjectionExpression="sequence_number",
-        )
-        items = resp.get("Items", [])
-        next_seq = (int(items[0]["sequence_number"]) + 1) if items else 1
+        # Use microsecond-precision timestamp as sort key (no read-before-write)
+        next_seq = int(_time.time() * 1_000_000)
 
         message_id = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
 
         item = {
             "session_id": session_id,
@@ -246,8 +240,8 @@ class DynamoDBClient:
         handoffs: list[str] = None,
         metadata: dict = None,
     ) -> dict:
-        now = datetime.utcnow().isoformat()
-        date_partition = datetime.utcnow().strftime("%Y-%m-%d")
+        now = datetime.now(timezone.utc).isoformat()
+        date_partition = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
         item = {
             "session_id": session_id,
@@ -306,7 +300,7 @@ class DynamoDBClient:
                 # Query each day in range
                 items = []
                 current = datetime.fromisoformat(start_date[:10])
-                end = datetime.fromisoformat(end_date[:10]) if end_date else datetime.utcnow()
+                end = datetime.fromisoformat(end_date[:10]) if end_date else datetime.now(timezone.utc)
 
                 while current <= end and len(items) < limit:
                     day_str = current.strftime("%Y-%m-%d")
@@ -334,11 +328,11 @@ class DynamoDBClient:
 
     def get_agent_summary(self, days: int = 7) -> dict:
         try:
-            start = datetime.utcnow() - timedelta(days=days)
+            start = datetime.now(timezone.utc) - timedelta(days=days)
             items = []
 
             current = start
-            while current <= datetime.utcnow():
+            while current <= datetime.now(timezone.utc):
                 day_str = current.strftime("%Y-%m-%d")
                 resp = self.analytics.query(
                     IndexName="by_date",
@@ -423,8 +417,8 @@ class DynamoDBClient:
         if not 1 <= rating <= 5:
             raise ValueError("Rating must be between 1 and 5")
 
-        now = datetime.utcnow().isoformat()
-        date_partition = datetime.utcnow().strftime("%Y-%m-%d")
+        now = datetime.now(timezone.utc).isoformat()
+        date_partition = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
         item = {
             "session_id": session_id,
@@ -462,11 +456,11 @@ class DynamoDBClient:
 
     def get_feedback_summary(self, days: int = 30) -> dict:
         try:
-            start = datetime.utcnow() - timedelta(days=days)
+            start = datetime.now(timezone.utc) - timedelta(days=days)
             items = []
 
             current = start
-            while current <= datetime.utcnow():
+            while current <= datetime.now(timezone.utc):
                 day_str = current.strftime("%Y-%m-%d")
                 resp = self.feedback.query(
                     IndexName="by_date",

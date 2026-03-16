@@ -11,3 +11,6 @@ cdk.out
 .env
 .env.*.local
 .env.local
+
+# ignore python cache
+__pycache__

@@ -2,7 +2,6 @@ from agents import Agent, Runner
 from .nutrition_plan import nutrition_plan_agent
 from .education import education_agent
 from .monitoring import monitoring_agent
-from .safety import safety_agent
 from .alba_knowledge import ALBA_KNOWLEDGE
 
 ORCHESTRATOR_AGENT_SYSTEM_PROMPT = """
@@ -137,14 +136,9 @@ Eres el orquestador para un chatbot de nutrición enfocado en enfermedad renal c
   - Quiere dar seguimiento a cómo se siente
   - Menciona síntomas preocupantes
 
-- **Agente de Seguridad (safety_agent)**: Siempre revisa las respuestas para:
-  - Bloquear consejos médicos o dietéticos peligrosos
-  - Agregar disclaimers faltantes
-  - Asegurar escalación de emergencia si es necesario
+## ⚠️ REGLAS DE DELEGACIÓN OBLIGATORIAS
 
-## ⚠️ REGLAS DE HANDOFF OBLIGATORIAS
-
-**DEBES transferir al agente especializado cuando se cumplan las siguientes condiciones. NO intentes responder tú mismo si aplica alguna regla:**
+**DEBES delegar a la herramienta o agente especializado cuando se cumplan las siguientes condiciones. NO intentes responder tú mismo si aplica alguna regla:**
 
 ### → Transferir a nutrition_plan_agent CUANDO:
 - El usuario pide un "plan de comidas", "menú", "qué comer", "ideas de comida", "plan semanal" o "plan diario"
@@ -153,22 +147,19 @@ Eres el orquestador para un chatbot de nutrición enfocado en enfermedad renal c
 - El usuario quiere saber qué desayunar/almorzar/cenar
 - El usuario menciona ingredientes específicos y quiere recetas o sugerencias
 
-### → Transferir a education_agent CUANDO:
+### → Consultar consult_education CUANDO:
 - El usuario pregunta "¿por qué debo limitar X?" o "¿qué es X?"
 - El usuario quiere entender su condición renal o valores de laboratorio
 - El usuario pregunta sobre etapas de ERC, diálisis, o trasplante
 - El usuario pregunta sobre medicamentos para ERC
 - El usuario quiere información educativa general sobre nutrición renal
 
-### → Transferir a monitoring_agent CUANDO:
+### → Consultar consult_monitoring CUANDO:
 - El usuario reporta síntomas físicos (fatiga, hinchazón, náuseas, etc.)
 - El usuario comparte resultados de laboratorio recientes
 - El usuario dice cómo se siente hoy
 
-### → Transferir a safety_agent CUANDO:
-- Detectas síntomas de emergencia
-- La respuesta podría contener consejos potencialmente peligrosos
-- Se necesita validación de seguridad antes de entregar la respuesta
+**Cuando uses consult_education o consult_monitoring:** Toma la información que devuelven y reformúlala con tu propia voz, manteniendo el tono cálido y unificado. NO copies textualmente la respuesta del especialista.
 
 **IMPORTANTE:** Si tienes la información necesaria (TFG, peso, altura, sexo, restricciones) y el usuario pide un plan de comidas, DEBES transferir inmediatamente a nutrition_plan_agent. NO respondas con más preguntas si ya tienes los datos.
 
@@ -309,11 +300,16 @@ FULL_ORCHESTRATOR_PROMPT = ORCHESTRATOR_AGENT_SYSTEM_PROMPT + ALBA_KNOWLEDGE
 orchestrator_agent = Agent(
     name="Orchestrator",
     instructions=FULL_ORCHESTRATOR_PROMPT,
-    handoffs=[
-        nutrition_plan_agent,
-        education_agent,
-        monitoring_agent,
-        safety_agent
+    handoffs=[nutrition_plan_agent],
+    tools=[
+        education_agent.as_tool(
+            tool_name="consult_education",
+            tool_description="Consultar al especialista en educación renal para explicar conceptos de enfermedad renal, valores de laboratorio, restricciones dietéticas y dudas educativas del paciente.",
+        ),
+        monitoring_agent.as_tool(
+            tool_name="consult_monitoring",
+            tool_description="Consultar al especialista en monitoreo de síntomas para evaluar síntomas reportados, interpretar valores de laboratorio compartidos y orientar sobre cuándo buscar atención médica.",
+        ),
     ],
     model="gpt-5-nano-2025-08-07",
 )

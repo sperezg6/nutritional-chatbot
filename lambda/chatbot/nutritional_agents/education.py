@@ -363,5 +363,6 @@ Su médico puede interpretar este valor mejor con su historial completo.
 education_agent = Agent(
     name="Education",
     instructions=EDUCATION_AGENT_SYSTEM_PROMPT,
+    tools=[WebSearchTool()],
     model="gpt-5-nano-2025-08-07",
 )

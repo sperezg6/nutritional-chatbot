@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 from agents import Runner
 from nutritional_agents.orchestrator import orchestrator_agent
+from nutritional_agents.safety import run_safety_check
 from utils.dynamodb_client import dynamodb_client
 
 # UUID validation pattern
@@ -99,10 +100,6 @@ async def chat_stream(request: ChatRequest):
             result = Runner.run_streamed(
                 orchestrator_agent,
                 input=conversation_history + [{"role": "user", "content": request.message}],
-                context={
-                    "session_id": session_id,
-                    "db": db,
-                },
             )
 
             # Iterate through streaming events
@@ -114,10 +111,6 @@ async def chat_stream(request: ChatRequest):
                         accumulated_response += delta
                         yield f"data: {json.dumps({'type': 'chunk', 'content': delta})}\n\n"
 
-                # Track which agent was used (available after streaming completes)
-                if hasattr(event, 'last_agent') and event.last_agent:
-                    agent_used = getattr(event.last_agent, 'name', str(event.last_agent))
-
             # After streaming, check if we have agent info from the result
             if hasattr(result, 'last_agent') and result.last_agent:
                 agent_used = getattr(result.last_agent, 'name', str(result.last_agent))
@@ -126,38 +119,37 @@ async def chat_stream(request: ChatRequest):
             response_text = accumulated_response
 
             if not response_text:
-                # Fallback: if streaming didn't work, get the final result
-                result = await Runner.run(
-                    orchestrator_agent,
-                    input=conversation_history + [{"role": "user", "content": request.message}],
-                    context={
-                        "session_id": session_id,
-                        "db": db,
-                    },
-                )
-                response_text = result.final_output
+                print("Warning: streaming produced no output")
+                response_text = "Lo siento, ocurrió un problema al generar la respuesta. Por favor intente de nuevo."
                 yield f"data: {json.dumps({'type': 'chunk', 'content': response_text})}\n\n"
+
+            # Post-process every response through safety checker
+            checked_text = await run_safety_check(response_text)
+            if checked_text != response_text:
+                # Safety modified/blocked the response — send correction to client
+                yield f"data: {json.dumps({'type': 'safety_correction', 'content': checked_text})}\n\n"
+                response_text = checked_text
 
             # Calculate response time
             response_time_ms = (time.time() - start_time) * 1000
 
-            # Save assistant response (await to ensure history consistency)
-            await asyncio.to_thread(
-                db.save_message,
-                session_id=session_id,
-                role="assistant",
-                content=response_text,
-                agent_used=agent_used
+            # Save assistant response and analytics (awaited to avoid data loss)
+            await asyncio.gather(
+                asyncio.to_thread(
+                    db.save_message,
+                    session_id=session_id,
+                    role="assistant",
+                    content=response_text,
+                    agent_used=agent_used,
+                ),
+                asyncio.to_thread(
+                    db.save_agent_analytics,
+                    session_id=session_id,
+                    agent_name=agent_used,
+                    response_time_ms=response_time_ms,
+                    success=True,
+                ),
             )
-
-            # Save analytics in background
-            asyncio.create_task(asyncio.to_thread(
-                db.save_agent_analytics,
-                session_id=session_id,
-                agent_name=agent_used,
-                response_time_ms=response_time_ms,
-                success=True,
-            ))
 
             # Send completion event
             yield f"data: {json.dumps({'type': 'end', 'agent_used': agent_used})}\n\n"
@@ -170,16 +162,19 @@ async def chat_stream(request: ChatRequest):
             # Calculate response time even on error
             response_time_ms = (time.time() - start_time) * 1000
 
-            # Save error analytics in background
+            # Save error analytics (awaited to avoid data loss)
             if session_id:
-                asyncio.create_task(asyncio.to_thread(
-                    db.save_agent_analytics,
-                    session_id=session_id,
-                    agent_name=agent_used,
-                    response_time_ms=response_time_ms,
-                    success=False,
-                    error_message=error_message,
-                ))
+                try:
+                    await asyncio.to_thread(
+                        db.save_agent_analytics,
+                        session_id=session_id,
+                        agent_name=agent_used,
+                        response_time_ms=response_time_ms,
+                        success=False,
+                        error_message=error_message,
+                    )
+                except Exception as analytics_err:
+                    print(f"Failed to save error analytics: {analytics_err}")
 
             yield f"data: {json.dumps({'type': 'error', 'content': f'Error: {str(e)}'})}\n\n"
 
