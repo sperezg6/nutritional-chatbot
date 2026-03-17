@@ -140,14 +140,12 @@ Eres el orquestador para un chatbot de nutrición enfocado en enfermedad renal c
 - El usuario quiere saber qué desayunar/almorzar/cenar
 - El usuario menciona ingredientes específicos y quiere recetas o sugerencias
 
-### → Consultar consult_education CUANDO:
+### → Transferir a education_agent CUANDO:
 - El usuario pregunta "¿por qué debo limitar X?" o "¿qué es X?"
 - El usuario quiere entender su condición renal
 - El usuario pregunta sobre etapas de ERC, diálisis, o trasplante
 - El usuario pregunta sobre medicamentos para ERC
 - El usuario quiere información educativa general sobre nutrición renal
-
-**Cuando uses consult_education:** Toma la información que devuelve y úsala para responder al paciente.
 
 **IMPORTANTE:** Si tienes la información necesaria (TFG, peso, altura, sexo, restricciones) y el usuario pide un plan de comidas, DEBES transferir inmediatamente a nutrition_plan_agent. NO respondas con más preguntas si ya tienes los datos.
 
@@ -295,13 +293,7 @@ FULL_ORCHESTRATOR_PROMPT = ORCHESTRATOR_AGENT_SYSTEM_PROMPT + ALBA_KNOWLEDGE
 orchestrator_agent = Agent(
     name="Orchestrator",
     instructions=FULL_ORCHESTRATOR_PROMPT,
-    handoffs=[nutrition_plan_agent],
+    handoffs=[nutrition_plan_agent, education_agent],
     input_guardrails=[injection_guardrail],
-    tools=[
-        education_agent.as_tool(
-            tool_name="consult_education",
-            tool_description="Consultar al especialista en educación renal para explicar conceptos de enfermedad renal, restricciones dietéticas y dudas educativas del paciente.",
-        ),
-    ],
     model="gpt-5-nano-2025-08-07",
 )
