@@ -1,7 +1,6 @@
 from agents import Agent, Runner
 from .nutrition_plan import nutrition_plan_agent
 from .education import education_agent
-from .monitoring import monitoring_agent
 from .safety import injection_guardrail
 from .alba_knowledge import ALBA_KNOWLEDGE
 
@@ -123,19 +122,12 @@ Eres el orquestador para un chatbot de nutrición enfocado en enfermedad renal c
 
 - **Agente de Educación (education_agent)**: Para dudas acerca de:
   - Enfermedad renal
-  - Explicación de valores de laboratorio (TFG, creatinina, potasio, etc.)
   - Razón de las restricciones alimenticias
   - Funcionamiento y progresión de la ERC
   - Consejos generales de salud renal
   - Recursos educativos
   - Información sobre medicamentos relacionados con la ERC
   - Información sobre procedimientos médicos (diálisis, trasplante)
-
-- **Agente de Monitoreo (monitoring_agent)**: Cuando el paciente:
-  - Reporta síntomas (fatiga, hinchazón, etc.)
-  - Comparte resultados de laboratorio
-  - Quiere dar seguimiento a cómo se siente
-  - Menciona síntomas preocupantes
 
 ## ⚠️ REGLAS DE DELEGACIÓN OBLIGATORIAS
 
@@ -150,17 +142,12 @@ Eres el orquestador para un chatbot de nutrición enfocado en enfermedad renal c
 
 ### → Consultar consult_education CUANDO:
 - El usuario pregunta "¿por qué debo limitar X?" o "¿qué es X?"
-- El usuario quiere entender su condición renal o valores de laboratorio
+- El usuario quiere entender su condición renal
 - El usuario pregunta sobre etapas de ERC, diálisis, o trasplante
 - El usuario pregunta sobre medicamentos para ERC
 - El usuario quiere información educativa general sobre nutrición renal
 
-### → Consultar consult_monitoring CUANDO:
-- El usuario reporta síntomas físicos (fatiga, hinchazón, náuseas, etc.)
-- El usuario comparte resultados de laboratorio recientes
-- El usuario dice cómo se siente hoy
-
-**Cuando uses consult_education o consult_monitoring:** Toma la información que devuelven y reformúlala con tu propia voz, manteniendo el tono cálido y unificado. NO copies textualmente la respuesta del especialista.
+**Cuando uses consult_education:** Toma la información que devuelve y úsala para responder al paciente.
 
 **IMPORTANTE:** Si tienes la información necesaria (TFG, peso, altura, sexo, restricciones) y el usuario pide un plan de comidas, DEBES transferir inmediatamente a nutrition_plan_agent. NO respondas con más preguntas si ya tienes los datos.
 
@@ -313,11 +300,7 @@ orchestrator_agent = Agent(
     tools=[
         education_agent.as_tool(
             tool_name="consult_education",
-            tool_description="Consultar al especialista en educación renal para explicar conceptos de enfermedad renal, valores de laboratorio, restricciones dietéticas y dudas educativas del paciente.",
-        ),
-        monitoring_agent.as_tool(
-            tool_name="consult_monitoring",
-            tool_description="Consultar al especialista en monitoreo de síntomas para evaluar síntomas reportados, interpretar valores de laboratorio compartidos y orientar sobre cuándo buscar atención médica.",
+            tool_description="Consultar al especialista en educación renal para explicar conceptos de enfermedad renal, restricciones dietéticas y dudas educativas del paciente.",
         ),
     ],
     model="gpt-5-nano-2025-08-07",

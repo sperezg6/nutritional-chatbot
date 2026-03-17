@@ -14,21 +14,19 @@ Client (SSE / JSON)
     └── GET  /health        → inline health check
     │
     ▼
-┌─────────────────────────────────────────────────────┐
-│  Orchestrator Agent                                  │
-│  Routes patient queries, collects context naturally  │
-│                                                      │
-│  ┌──────────┐  ┌──────────────┐  ┌──────────────┐  │
-│  │ Education │  │  Monitoring  │  │ Nutrition    │  │
-│  │ (tool)   │  │  (tool)      │  │ Plan (handoff)│  │
-│  └──────────┘  └──────────────┘  └──────────────┘  │
-└─────────────────────┬───────────────────────────────┘
-                      │
-                      ▼
-              Safety Post-Processor
-              (validates every response)
-                      │
-                      ▼
+┌──────────────────────────────────────────────────┐
+│  Orchestrator Agent                               │
+│  Routes patient queries, collects context         │
+│                                                   │
+│  ┌──────────────┐        ┌──────────────────┐    │
+│  │  Education   │        │  Nutrition Plan  │    │
+│  │  (tool)      │        │  (handoff)       │    │
+│  └──────────────┘        └──────────────────┘    │
+│                                                   │
+│  Input Guardrail (prompt injection, parallel)     │
+└───────────────────────┬──────────────────────────┘
+                        │
+                        ▼
               DynamoDB (sessions, messages, analytics, feedback)
 ```
 
@@ -38,11 +36,10 @@ Client (SSE / JSON)
 |-------|------|-------------|
 | **Orchestrator** | Routes queries, collects patient context, answers simple questions | Main entry point |
 | **Nutrition Plan** | Creates personalized meal plans based on CKD stage, weight, restrictions | Handoff (multi-turn) |
-| **Education** | Explains kidney disease concepts, lab values, dietary restrictions | Tool (single-turn) |
-| **Monitoring** | Evaluates reported symptoms, contextualizes lab results, flags emergencies | Tool (single-turn) |
+| **Education** | Explains kidney disease concepts and dietary restrictions | Tool (single-turn) |
 | **Input Guardrail** | Detects prompt injection attempts before the orchestrator processes the message | Runs in parallel on all inputs |
 
-Education and Monitoring agents are integrated as tools (`as_tool`) so the orchestrator reformulates their responses in a unified voice. The Nutrition Plan agent uses a handoff because it needs multi-turn follow-up for meal plan generation. The Input Guardrail runs in parallel with the orchestrator to detect prompt injection with zero added latency for legitimate requests.
+The Education agent is integrated as a tool (`as_tool`) so the orchestrator reformulates its response in a unified voice. The Nutrition Plan agent uses a handoff because it needs multi-turn follow-up for meal plan generation. The Input Guardrail runs in parallel with the orchestrator to detect prompt injection with zero added latency for legitimate requests.
 
 All agents use `gpt-5-nano-2025-08-07`. The Education agent has `WebSearchTool` for PubMed/kidney.org lookups.
 
@@ -76,7 +73,6 @@ nutritional-chatbot/
 │   │   ├── orchestrator.py         # Main routing agent
 │   │   ├── nutrition_plan.py       # Meal plan generation
 │   │   ├── education.py            # CKD education + web search
-│   │   ├── monitoring.py           # Symptom tracking
 │   │   ├── safety.py               # Input guardrail (prompt injection detection)
 │   │   └── alba_knowledge.py       # Clinic-specific information
 │   └── utils/
